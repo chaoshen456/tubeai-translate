@@ -36,8 +36,24 @@ export interface YouTubeCaptionListResponse {
   items: YouTubeCaption[];
 }
 
-export interface YouTubeVideoResponse {
-  items: YouTubeVideo[];
+// YouTube API returns nested structure - define for raw response
+interface YouTubeAPIVideo {
+  id: string;
+  snippet: {
+    title: string;
+    description: string;
+    thumbnails: {
+      default: { url: string };
+      medium: { url: string };
+      high: { url: string };
+    };
+    channelTitle: string;
+    publishedAt: string;
+  };
+}
+
+interface YouTubeVideoResponse {
+  items: YouTubeAPIVideo[];
   nextPageToken?: string;
   pageInfo: {
     totalResults: number;
@@ -49,7 +65,7 @@ export interface YouTubeVideoResponse {
 export async function fetchPopularAIVideos(maxResults: number = 20): Promise<YouTubeVideo[]> {
   const url = new URL(`${YOUTUBE_API_BASE}/videos`);
 
-  url.searchParams.set('part', 'snippet,contentDetails');
+  url.searchParams.set('part', 'snippet');
   url.searchParams.set('chart', 'mostPopular');
   url.searchParams.set('videoCategoryId', AI_CATEGORY_ID);
   url.searchParams.set('regionCode', DEFAULT_REGION);
@@ -64,7 +80,33 @@ export async function fetchPopularAIVideos(maxResults: number = 20): Promise<You
   }
 
   const data: YouTubeVideoResponse = await response.json();
-  return data.items;
+
+  // Transform nested structure to flat structure
+  return data.items.map((v) => ({
+    id: v.id,
+    title: v.snippet.title,
+    description: v.snippet.description,
+    thumbnails: v.snippet.thumbnails,
+    channelTitle: v.snippet.channelTitle,
+    publishedAt: v.snippet.publishedAt,
+  }));
+}
+
+// YouTube API captions response has nested structure
+interface YouTubeAPICaption {
+  id: string;
+  snippet: {
+    videoId: string;
+    language: string;
+    name: string;
+    isDraft: boolean;
+    isDraftStore: boolean;
+    trackKind: string;
+  };
+}
+
+interface YouTubeAPICaptionListResponse {
+  items: YouTubeAPICaption[];
 }
 
 // Fetch video captions/subtitles
@@ -86,8 +128,18 @@ export async function fetchVideoCaptions(videoId: string): Promise<YouTubeCaptio
     throw new Error(`YouTube Captions API error: ${response.status} - ${error}`);
   }
 
-  const data: YouTubeCaptionListResponse = await response.json();
-  return data.items || [];
+  const data: YouTubeAPICaptionListResponse = await response.json();
+
+  // Transform nested structure to flat structure
+  return (data.items || []).map((c) => ({
+    id: c.id,
+    videoId: c.snippet.videoId,
+    language: c.snippet.language,
+    name: c.snippet.name,
+    isDraft: c.snippet.isDraft,
+    isDraftStore: c.snippet.isDraftStore,
+    trackKind: c.snippet.trackKind,
+  }));
 }
 
 // Download caption content
