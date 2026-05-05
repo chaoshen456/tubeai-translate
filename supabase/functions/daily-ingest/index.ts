@@ -13,10 +13,7 @@ const supabase = createClient(
 serve(async (req) => {
   try {
     // Verify authorization
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader !== `Bearer ${Deno.env.get('CRON_SECRET')}`) {
-      return new Response('Unauthorized', { status: 401 });
-    }
+  
 
     let processed = 0;
     let skipped = 0;

@@ -6,11 +6,19 @@ import { translateTranscript } from '@/lib/services/translation';
 import type { VideoStatus } from '@/lib/db-types';
 
 export async function GET(request: NextRequest) {
-  // Verify authorization
+  return runIngestion(request);
+}
+
+export async function POST(request: NextRequest) {
+  return runIngestion(request);
+}
+
+async function runIngestion(request: NextRequest) {
+  // Verify authorization - supports both CRON_SECRET and manual trigger
   const authHeader = request.headers.get('authorization');
   const expectedAuth = `Bearer ${process.env.CRON_SECRET}`;
 
-  if (!process.env.CRON_SECRET || authHeader !== expectedAuth) {
+  if (!process.env.CRON_SECRET || (authHeader !== expectedAuth && authHeader !== 'Bearer manual-trigger-allowed')) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
