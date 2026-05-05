@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/server';
 import { fetchPopularAIVideos } from '@/lib/services/youtube';
-import { getTranscript } from '@/lib/services/transcription';
 import { translateTranscript } from '@/lib/services/translation';
 import type { VideoStatus } from '@/lib/db-types';
 
@@ -23,7 +22,7 @@ async function runIngestion(request: NextRequest) {
   }
 
   try {
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     let processed = 0;
     let skipped = 0;
     let errors: string[] = [];
