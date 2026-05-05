@@ -1,0 +1,11 @@
+{
+  "crons": [
+    {
+      "path": "/api/scheduler/run",
+      "schedule": "0 8 * * *"
+    }
+  ],
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install"
+}
