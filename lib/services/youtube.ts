@@ -174,11 +174,27 @@ export async function fetchVideoCaptions(
   const requestParams = { url, videoId, api: 'TimedText list' };
 
   try {
-    const response = await fetch(url, {
+    // Build fetch options with proxy support
+    const fetchOptions: RequestInit = {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
-    });
+    };
+
+    // Add proxy agent if available
+    const httpsProxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (httpsProxy) {
+      try {
+        // Dynamic import for optional dependency
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { HttpsProxyAgent } = require('https-proxy-agent');
+        (fetchOptions as Record<string, unknown>).agent = new HttpsProxyAgent(httpsProxy);
+      } catch {
+        // https-proxy-agent not installed, continue without proxy
+      }
+    }
+
+    const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
       const errorMsg = `TimedText API error: ${response.status}`;
@@ -190,12 +206,27 @@ export async function fetchVideoCaptions(
 
     const xmlText = await response.text();
 
-    // Parse XML to extract caption tracks
+    // Log raw XML for debugging - store complete response
+    if (logs) {
+      logApiCall(logs, 'fetchVideoCaptions_raw', requestParams, {
+        xmlLength: xmlText.length,
+        xmlContent: xmlText, // Store complete raw XML response
+      });
+    }
+
+    // Parse XML to extract caption tracks - try multiple patterns
     const captions: YouTubeCaption[] = [];
-    const trackRegex = /<track[^>]*?id="([^"]*)"[^>]*?name="([^"]*)"[^>]*?lang_code="([^"]*)"[^>]*?>/g;
+
+    // Pattern 1: id + name + lang_code
+    const trackRegex1 = /<track[^>]*?id="([^"]*)"[^>]*?name="([^"]*)"[^>]*?lang_code="([^"]*)"[^>]*?>/g;
+    // Pattern 2: lang_code + name (no id)
+    const trackRegex2 = /<track[^>]*?lang_code="([^"]*)"[^>]*?name="([^"]*)"[^>]*?>/g;
+    // Pattern 3: simpler format
+    const trackRegex3 = /<track[^>]*?lang="([^"]*)"[^>]*?label="([^"]*)"[^>]*?>/g;
 
     let match;
-    while ((match = trackRegex.exec(xmlText)) !== null) {
+    // Try pattern 1
+    while ((match = trackRegex1.exec(xmlText)) !== null) {
       captions.push({
         id: match[1] || `${match[3]}-${match[2]}`,
         videoId: videoId,
@@ -207,10 +238,41 @@ export async function fetchVideoCaptions(
       });
     }
 
+    // If pattern 1 found nothing, try pattern 2
+    if (captions.length === 0) {
+      while ((match = trackRegex2.exec(xmlText)) !== null) {
+        captions.push({
+          id: `${match[1]}-${match[2]}`,
+          videoId: videoId,
+          language: match[1],
+          name: match[2],
+          isDraft: false,
+          isDraftStore: false,
+          trackKind: 'standard',
+        });
+      }
+    }
+
+    // If still nothing, try pattern 3
+    if (captions.length === 0) {
+      while ((match = trackRegex3.exec(xmlText)) !== null) {
+        captions.push({
+          id: `${match[1]}-${match[2]}`,
+          videoId: videoId,
+          language: match[1],
+          name: match[2],
+          isDraft: false,
+          isDraftStore: false,
+          trackKind: 'standard',
+        });
+      }
+    }
+
     if (logs) {
       logApiCall(logs, 'fetchVideoCaptions', requestParams, {
         captionCount: captions.length,
         captions: captions.map((c) => ({ language: c.language, name: c.name })),
+        xmlLength: xmlText.length,
       });
     }
 
@@ -259,11 +321,26 @@ export async function downloadCaptionForVideo(
   const requestParams = { url: url.toString(), videoId, lang, name: name || null };
 
   try {
-    const response = await fetch(url.toString(), {
+    // Build fetch options with proxy support
+    const fetchOptions: RequestInit = {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
-    });
+    };
+
+    // Add proxy agent if available
+    const httpsProxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (httpsProxy) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { HttpsProxyAgent } = require('https-proxy-agent');
+        (fetchOptions as Record<string, unknown>).agent = new HttpsProxyAgent(httpsProxy);
+      } catch {
+        // https-proxy-agent not installed, continue without proxy
+      }
+    }
+
+    const response = await fetch(url.toString(), fetchOptions);
 
     if (!response.ok) {
       const errorMsg = `TimedText API error: ${response.status}`;
@@ -275,10 +352,11 @@ export async function downloadCaptionForVideo(
 
     const text = await response.text();
 
+    // Log complete response for debugging
     if (logs) {
       logApiCall(logs, 'downloadCaptionForVideo', requestParams, {
         contentLength: text.length,
-        preview: text.substring(0, 200),
+        content: text, // Store complete raw response
       });
     }
 
