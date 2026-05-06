@@ -101,7 +101,9 @@ async function runIngestion(request: NextRequest) {
 
         processed++;
       } catch (error) {
-        errors.push(`Error processing video ${video.id}: ${error instanceof Error ? error.message : String(error)}`);
+        errors.push(
+          `Error processing video ${video.id}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -122,7 +124,7 @@ async function runIngestion(request: NextRequest) {
   }
 }
 
-// Get transcript from YouTube captions, with fallback to Whisper via transcription service
+// Get transcript from YouTube captions
 async function getYouTubeTranscriptSimple(videoId: string): Promise<string | null> {
   try {
     const { fetchVideoCaptions, downloadCaption } = await import('@/lib/services/youtube');
