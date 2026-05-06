@@ -7,6 +7,15 @@ export type VideoStatus =
   | 'Ready to Publish'
   | 'Published';
 
+// YouTube API log entry
+export interface YouTubeApiLog {
+  api_call: string;
+  request: Record<string, unknown>;
+  response: unknown;
+  error?: string;
+  timestamp: string;
+}
+
 // Video interface matching the videos table
 export interface Video {
   id: number;
@@ -20,6 +29,7 @@ export interface Video {
   review_time: string | null;
   publish_time: string | null;
   rejection_note: string | null;
+  youtube_api_log: YouTubeApiLog[] | null;
 }
 
 // User interface matching the users table

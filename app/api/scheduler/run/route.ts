@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
-import { fetchPopularAIVideos } from '@/lib/services/youtube';
+import { fetchPopularAIVideos, YouTubeApiLogEntry } from '@/lib/services/youtube';
 import { translateTranscript } from '@/lib/services/translation';
 import type { VideoStatus } from '@/lib/db-types';
 
@@ -26,9 +26,10 @@ async function runIngestion(request: NextRequest) {
     let processed = 0;
     let skipped = 0;
     const errors: string[] = [];
+    const apiLogs: YouTubeApiLogEntry[] = [];
 
-    // Fetch popular AI videos
-    const videos = await fetchPopularAIVideos(10);
+    // Fetch popular AI videos (with logging)
+    const videos = await fetchPopularAIVideos(10, apiLogs);
 
     for (const video of videos) {
       try {
@@ -61,8 +62,9 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Check transcript
-        const transcript = await getYouTubeTranscriptSimple(video.id);
+        // Check transcript (with logging)
+        const videoApiLogs: YouTubeApiLogEntry[] = [];
+        const transcript = await getYouTubeTranscriptSimple(video.id, videoApiLogs);
 
         if (!transcript) {
           // No captions available - mark as rejected with reason
@@ -71,6 +73,7 @@ async function runIngestion(request: NextRequest) {
             .update({
               status: 'Rejected' as VideoStatus,
               rejection_note: '此视频无弹幕，由于合规问题，无法处理',
+              youtube_api_log: [...apiLogs, ...videoApiLogs],
             })
             .eq('id', newVideo.id);
           processed++;
@@ -87,6 +90,7 @@ async function runIngestion(request: NextRequest) {
             original_text: transcript,
             translated_text: translated,
             status: 'Pending Review' as VideoStatus,
+            youtube_api_log: [...apiLogs, ...videoApiLogs],
           })
           .eq('id', newVideo.id);
 
@@ -116,11 +120,14 @@ async function runIngestion(request: NextRequest) {
 }
 
 // Get transcript from YouTube captions
-async function getYouTubeTranscriptSimple(videoId: string): Promise<string | null> {
+async function getYouTubeTranscriptSimple(
+  videoId: string,
+  logs?: YouTubeApiLogEntry[]
+): Promise<string | null> {
   try {
     const { fetchVideoCaptions, downloadCaptionForVideo } = await import('@/lib/services/youtube');
 
-    const captions = await fetchVideoCaptions(videoId);
+    const captions = await fetchVideoCaptions(videoId, logs);
     const englishCaption = captions.find((c) => c.language === 'en') || captions[0];
 
     if (!englishCaption) {
@@ -131,7 +138,8 @@ async function getYouTubeTranscriptSimple(videoId: string): Promise<string | nul
     const content = await downloadCaptionForVideo(
       videoId,
       englishCaption.language,
-      englishCaption.name
+      englishCaption.name,
+      logs
     );
 
     // Parse XML format to extract text

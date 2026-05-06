@@ -1,17 +1,18 @@
 -- 1. 视频表
 CREATE TABLE public.videos (
-  id              SERIAL PRIMARY KEY,
-  youtube_id      TEXT UNIQUE NOT NULL,
-  title           TEXT NOT NULL,
-  thumbnail_url   TEXT,
-  original_text   TEXT,         -- 完整字幕
-  translated_text TEXT,         -- AI 生成中文文本
-  status          TEXT NOT NULL DEFAULT 'Pending Translation',
+  id               SERIAL PRIMARY KEY,
+  youtube_id       TEXT UNIQUE NOT NULL,
+  title            TEXT NOT NULL,
+  thumbnail_url    TEXT,
+  original_text    TEXT,         -- 完整字幕
+  translated_text  TEXT,         -- AI 生成中文文本
+  status           TEXT NOT NULL DEFAULT 'Pending Translation',
   -- 枚举：Pending Translation, Pending Review, Approved, Rejected, Ready to Publish, Published
-  ingest_time     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  review_time     TIMESTAMP WITH TIME ZONE,
-  publish_time    TIMESTAMP WITH TIME ZONE,
-  rejection_note  TEXT
+  ingest_time      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  review_time      TIMESTAMP WITH TIME ZONE,
+  publish_time     TIMESTAMP WITH TIME ZONE,
+  rejection_note   TEXT,
+  youtube_api_log  JSONB DEFAULT NULL  -- 记录 YouTube API 调用的入参和出参
 );
 
 -- 2. 用户表（由 Supabase Auth 管理）

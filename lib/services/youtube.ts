@@ -9,6 +9,32 @@ const AI_CATEGORY_ID = '28';
 // Region code for fetching popular videos (default: US)
 const DEFAULT_REGION = process.env.YOUTUBE_REGION || 'US';
 
+// API log entry type
+export interface YouTubeApiLogEntry {
+  api_call: string;
+  request: Record<string, unknown>;
+  response: unknown;
+  error?: string;
+  timestamp: string;
+}
+
+// Helper to log API call
+function logApiCall(
+  logs: YouTubeApiLogEntry[],
+  apiCall: string,
+  request: Record<string, unknown>,
+  response: unknown,
+  error?: string
+) {
+  logs.push({
+    api_call: apiCall,
+    request,
+    response,
+    ...(error && { error }),
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export interface YouTubeVideo {
   id: string;
   title: string;
@@ -61,8 +87,11 @@ interface YouTubeVideoResponse {
   };
 }
 
-// Fetch popular AI technology videos
-export async function fetchPopularAIVideos(maxResults: number = 20): Promise<YouTubeVideo[]> {
+// Fetch popular AI technology videos (with optional logging)
+export async function fetchPopularAIVideos(
+  maxResults: number = 20,
+  logs?: YouTubeApiLogEntry[]
+): Promise<YouTubeVideo[]> {
   const url = new URL(`${YOUTUBE_API_BASE}/videos`);
 
   url.searchParams.set('part', 'snippet');
@@ -72,24 +101,51 @@ export async function fetchPopularAIVideos(maxResults: number = 20): Promise<You
   url.searchParams.set('maxResults', maxResults.toString());
   url.searchParams.set('key', YOUTUBE_API_KEY!);
 
-  const response = await fetch(url.toString());
+  const requestParams = {
+    url: url.toString(),
+    part: 'snippet',
+    chart: 'mostPopular',
+    videoCategoryId: AI_CATEGORY_ID,
+    regionCode: DEFAULT_REGION,
+    maxResults,
+  };
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`YouTube API error: ${response.status} - ${error}`);
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      const error = await response.text();
+      const errorMsg = `YouTube API error: ${response.status} - ${error}`;
+      if (logs) {
+        logApiCall(logs, 'fetchPopularAIVideos', requestParams, null, errorMsg);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data: YouTubeVideoResponse = await response.json();
+
+    if (logs) {
+      logApiCall(logs, 'fetchPopularAIVideos', requestParams, {
+        itemCount: data.items?.length || 0,
+        items: (data.items || []).map((v) => ({ id: v.id, title: v.snippet?.title })),
+      });
+    }
+
+    // Transform nested structure to flat structure
+    return (data.items || []).map((v) => ({
+      id: v.id,
+      title: v.snippet.title,
+      description: v.snippet.description,
+      thumbnails: v.snippet.thumbnails,
+      channelTitle: v.snippet.channelTitle,
+      publishedAt: v.snippet.publishedAt,
+    }));
+  } catch (error) {
+    if (logs && logs.length === 0) {
+      logApiCall(logs, 'fetchPopularAIVideos', requestParams, null, error instanceof Error ? error.message : String(error));
+    }
+    throw error;
   }
-
-  const data: YouTubeVideoResponse = await response.json();
-
-  // Transform nested structure to flat structure
-  return data.items.map((v) => ({
-    id: v.id,
-    title: v.snippet.title,
-    description: v.snippet.description,
-    thumbnails: v.snippet.thumbnails,
-    channelTitle: v.snippet.channelTitle,
-    publishedAt: v.snippet.publishedAt,
-  }));
 }
 
 // YouTube API captions response has nested structure
@@ -110,11 +166,14 @@ interface YouTubeAPICaptionListResponse {
 }
 
 // Fetch video captions/subtitles using TimedText API (no OAuth needed)
-export async function fetchVideoCaptions(videoId: string): Promise<YouTubeCaption[]> {
-  try {
-    // Use TimedText API to get available caption tracks
-    const url = `https://www.youtube.com/api/timedtext?type=list&v=${videoId}`;
+export async function fetchVideoCaptions(
+  videoId: string,
+  logs?: YouTubeApiLogEntry[]
+): Promise<YouTubeCaption[]> {
+  const url = `https://www.youtube.com/api/timedtext?type=list&v=${videoId}`;
+  const requestParams = { url, videoId, api: 'TimedText list' };
 
+  try {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -122,6 +181,10 @@ export async function fetchVideoCaptions(videoId: string): Promise<YouTubeCaptio
     });
 
     if (!response.ok) {
+      const errorMsg = `TimedText API error: ${response.status}`;
+      if (logs) {
+        logApiCall(logs, 'fetchVideoCaptions', requestParams, null, errorMsg);
+      }
       return [];
     }
 
@@ -144,8 +207,19 @@ export async function fetchVideoCaptions(videoId: string): Promise<YouTubeCaptio
       });
     }
 
+    if (logs) {
+      logApiCall(logs, 'fetchVideoCaptions', requestParams, {
+        captionCount: captions.length,
+        captions: captions.map((c) => ({ language: c.language, name: c.name })),
+      });
+    }
+
     return captions;
-  } catch {
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (logs) {
+      logApiCall(logs, 'fetchVideoCaptions', requestParams, null, errorMsg);
+    }
     return [];
   }
 }
@@ -172,7 +246,8 @@ export async function downloadCaption(captionId: string, tfmt: 'vtt' | 'srt' | '
 export async function downloadCaptionForVideo(
   videoId: string,
   lang: string,
-  name?: string
+  name?: string,
+  logs?: YouTubeApiLogEntry[]
 ): Promise<string> {
   const url = new URL('https://www.youtube.com/api/timedtext');
   url.searchParams.set('v', videoId);
@@ -181,17 +256,39 @@ export async function downloadCaptionForVideo(
     url.searchParams.set('name', name);
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    },
-  });
+  const requestParams = { url: url.toString(), videoId, lang, name: name || null };
 
-  if (!response.ok) {
-    throw new Error(`TimedText API error: ${response.status}`);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      const errorMsg = `TimedText API error: ${response.status}`;
+      if (logs) {
+        logApiCall(logs, 'downloadCaptionForVideo', requestParams, null, errorMsg);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const text = await response.text();
+
+    if (logs) {
+      logApiCall(logs, 'downloadCaptionForVideo', requestParams, {
+        contentLength: text.length,
+        preview: text.substring(0, 200),
+      });
+    }
+
+    return text;
+  } catch (error) {
+    if (logs && error instanceof Error && !logs.some((l) => l.api_call === 'downloadCaptionForVideo')) {
+      logApiCall(logs, 'downloadCaptionForVideo', requestParams, null, error instanceof Error ? error.message : String(error));
+    }
+    throw error;
   }
-
-  return response.text();
 }
 
 // Extract video ID from YouTube URL

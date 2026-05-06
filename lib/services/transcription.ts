@@ -1,6 +1,6 @@
 // Transcription service with YouTube captions and Whisper fallback
 
-import { fetchVideoCaptions, downloadCaptionForVideo } from './youtube';
+import { fetchVideoCaptions, downloadCaptionForVideo, YouTubeApiLogEntry } from './youtube';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
 const WHISPER_MODEL = 'openai/whisper-large-v3';
@@ -102,9 +102,12 @@ export function formatTimestamp(seconds: number): string {
 }
 
 // Get transcript from YouTube captions
-export async function getYouTubeTranscript(videoId: string): Promise<Transcript | null> {
+export async function getYouTubeTranscript(
+  videoId: string,
+  logs?: YouTubeApiLogEntry[]
+): Promise<Transcript | null> {
   try {
-    const captions = await fetchVideoCaptions(videoId);
+    const captions = await fetchVideoCaptions(videoId, logs);
 
     // Prefer English captions
     const englishCaption = captions.find(c => c.language === 'en') || captions[0];
@@ -117,7 +120,8 @@ export async function getYouTubeTranscript(videoId: string): Promise<Transcript 
     const captionContent = await downloadCaptionForVideo(
       videoId,
       englishCaption.language,
-      englishCaption.name
+      englishCaption.name,
+      logs
     );
 
     // TimedText API returns XML format, convert to parseable format
