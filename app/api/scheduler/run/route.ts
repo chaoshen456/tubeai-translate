@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { fetchPopularAIVideos } from '@/lib/services/youtube';
 import { translateTranscript } from '@/lib/services/translation';
-import { transcribeAudio } from '@/lib/services/transcription';
 import type { VideoStatus } from '@/lib/db-types';
 
 export async function GET(request: NextRequest) {
@@ -45,7 +44,7 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Create video record
+        // Create video record first
         const { data: newVideo, error: insertError } = await supabase
           .from('videos')
           .insert({
@@ -62,43 +61,30 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Get transcript from YouTube captions, with Whisper fallback
+        // Check transcript
         const transcript = await getYouTubeTranscriptSimple(video.id);
 
-        let finalTranscript = transcript;
-
         if (!transcript) {
-          // Try Whisper as fallback if enabled
-          try {
-            const whisperResult = await transcribeAudio(video.id, 'videoId', 'mp3');
-            finalTranscript = whisperResult.fullText;
-          } catch (whisperError) {
-            // Whisper fallback failed - mark for manual review
-            const errorMsg = whisperError instanceof Error ? whisperError.message : String(whisperError);
-            // Clean up error message for readabilty
-            const cleanMsg = errorMsg.includes('410')
-              ? 'Video unavailable or age-restricted (cannot extract audio)'
-              : errorMsg;
-            await supabase
-              .from('videos')
-              .update({
-                status: 'Pending Review' as VideoStatus,
-                rejection_note: `No captions available. Whisper failed: ${cleanMsg}`,
-              })
-              .eq('id', newVideo.id);
-            processed++;
-            continue;
-          }
+          // No captions available - mark as rejected with reason
+          await supabase
+            .from('videos')
+            .update({
+              status: 'Rejected' as VideoStatus,
+              rejection_note: '此视频无弹幕，由于合规问题，无法处理',
+            })
+            .eq('id', newVideo.id);
+          processed++;
+          continue;
         }
 
         // Translate
-        const translated = await translateTranscript(finalTranscript!);
+        const translated = await translateTranscript(transcript);
 
         // Update with transcript and translation
         await supabase
           .from('videos')
           .update({
-            original_text: finalTranscript,
+            original_text: transcript,
             translated_text: translated,
             status: 'Pending Review' as VideoStatus,
           })
