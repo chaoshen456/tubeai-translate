@@ -74,11 +74,16 @@ async function runIngestion(request: NextRequest) {
             finalTranscript = whisperResult.fullText;
           } catch (whisperError) {
             // Whisper fallback failed - mark for manual review
+            const errorMsg = whisperError instanceof Error ? whisperError.message : String(whisperError);
+            // Clean up error message for readabilty
+            const cleanMsg = errorMsg.includes('410')
+              ? 'Video unavailable or age-restricted (cannot extract audio)'
+              : errorMsg;
             await supabase
               .from('videos')
               .update({
                 status: 'Pending Review' as VideoStatus,
-                rejection_note: `No captions available. Whisper failed: ${whisperError instanceof Error ? whisperError.message : String(whisperError)}`,
+                rejection_note: `No captions available. Whisper failed: ${cleanMsg}`,
               })
               .eq('id', newVideo.id);
             processed++;

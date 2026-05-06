@@ -144,30 +144,52 @@ async function downloadYouTubeAudio(videoId: string): Promise<Buffer> {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   // Use dynamic require to handle optional dependency
-  // In CommonJS, ytdl-core exports the function directly
-  let ytdlFn: (url: string, options?: Record<string, unknown>) => {
-    on: (event: string, callback: (chunk: Buffer) => void) => void;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ytdl = require('ytdl-core');
+
+  // Build request options with proxy support
+  const requestOptions: Record<string, unknown> = {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+    },
   };
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('ytdl-core');
-    // Handle both ESM default export and CommonJS direct export
-    ytdlFn = mod.default || mod;
-  } catch {
-    throw new Error(
-      'ytdl-core not installed. Install it with: npm install ytdl-core @types/ytdl-core'
-    );
+  // Add proxy support for ytdl-core
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (httpsProxy) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const proxyAgent = require('proxy-agent');
+      requestOptions.agent = new proxyAgent(httpsProxy);
+    } catch {
+      // proxy-agent not installed, continue without proxy
+    }
   }
 
-  const stream = ytdlFn(videoUrl, { quality: 'highestaudio' });
+  const stream = ytdl(videoUrl, {
+    quality: 'highestaudio',
+    requestOptions,
+  });
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
 
+    // Set timeout for the download (30 seconds)
+    const timeout = setTimeout(() => {
+      stream.destroy();
+      reject(new Error('YouTube audio download timeout (> 30s)'));
+    }, 30000);
+
     stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
+    stream.on('end', () => {
+      clearTimeout(timeout);
+      resolve(Buffer.concat(chunks));
+    });
+    stream.on('error', (err: Error) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 
