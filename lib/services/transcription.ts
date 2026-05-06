@@ -1,6 +1,6 @@
 // Transcription service with YouTube captions and Whisper fallback
 
-import TranscriptClient from 'youtube-transcript-api';
+import { fetchTranscript } from 'youtube-transcript';
 import { YouTubeApiLogEntry } from './youtube';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
@@ -102,7 +102,7 @@ export function formatTimestamp(seconds: number): string {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Get transcript from YouTube using youtube-transcript-api
+// Get transcript from YouTube using youtube-transcript
 export async function getYouTubeTranscript(
   videoId: string,
   logs?: YouTubeApiLogEntry[]
@@ -110,8 +110,8 @@ export async function getYouTubeTranscript(
   try {
     const requestParams = { videoId, lang: 'en' };
 
-    // Use static method to fetch transcript
-    const transcriptList = await TranscriptClient.fetchTranscript(videoId, {
+    // Use youtube-transcript to fetch transcript
+    const transcriptList = await fetchTranscript(videoId, {
       lang: 'en', // Prefer English
     });
 
