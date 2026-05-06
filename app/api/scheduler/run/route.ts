@@ -88,7 +88,7 @@ async function runIngestion(request: NextRequest) {
         await supabase
           .from('videos')
           .update({
-            original_text: transcript,
+            original_text: transcript.fullText,
             translated_text: translated,
             status: 'Pending Review' as VideoStatus,
             youtube_api_log: [...apiLogs, ...videoApiLogs],

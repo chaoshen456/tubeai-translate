@@ -1,6 +1,6 @@
 // Transcription service with YouTube captions and Whisper fallback
 
-import { fetchTranscript } from 'youtube-transcript';
+import { Innertube } from 'youtubei.js';
 import { YouTubeApiLogEntry } from './youtube';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
@@ -102,58 +102,134 @@ export function formatTimestamp(seconds: number): string {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Get transcript from YouTube using youtube-transcript
+let youtubeInstance: Innertube | null = null;
+
+async function getYouTube(): Promise<Innertube> {
+  if (!youtubeInstance) {
+    youtubeInstance = await Innertube.create();
+  }
+  return youtubeInstance;
+}
+
+function resetYouTube() {
+  youtubeInstance = null;
+}
+
+interface YTTranscriptSegment {
+  start_ms: string;
+  end_ms: string;
+  snippet: { toString(): string };
+}
+
+function isTranscriptSegment(seg: unknown): seg is YTTranscriptSegment {
+  return (
+    typeof seg === 'object' &&
+    seg !== null &&
+    'start_ms' in seg &&
+    'end_ms' in seg &&
+    'snippet' in seg
+  );
+}
+
 export async function getYouTubeTranscript(
   videoId: string,
   logs?: YouTubeApiLogEntry[]
 ): Promise<Transcript | null> {
   try {
-    const requestParams = { videoId, lang: 'en' };
+    const youtube = await getYouTube();
+    const info = await youtube.getInfo(videoId);
+    let transcriptInfo = await info.getTranscript();
 
-    // Use youtube-transcript to fetch transcript
-    const transcriptList = await fetchTranscript(videoId, {
-      lang: 'en', // Prefer English
-    });
+    const availableLanguages = transcriptInfo.languages;
+    let selectedLanguage = transcriptInfo.selectedLanguage;
 
-    // Log complete raw response for debugging
+    const enLang = availableLanguages.find((l) => l.startsWith('en'));
+    if (enLang && enLang !== selectedLanguage) {
+      transcriptInfo = await transcriptInfo.selectLanguage(enLang);
+      selectedLanguage = transcriptInfo.selectedLanguage;
+    }
+
+    const segments = transcriptInfo.transcript?.content?.body?.initial_segments;
+
+    if (!segments || segments.length === 0) {
+      if (logs) {
+        logs.push({
+          api_call: 'getYouTubeTranscript',
+          request: { videoId },
+          response: {
+            availableLanguages,
+            selectedLanguage,
+            segmentCount: 0,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return null;
+    }
+
+    const transcriptSegments: TranscriptSegment[] = [];
+    let skippedSegments = 0;
+
+    for (const segment of segments) {
+      if (isTranscriptSegment(segment)) {
+        const start = parseInt(segment.start_ms, 10) / 1000;
+        const end = parseInt(segment.end_ms, 10) / 1000;
+
+        if (isNaN(start) || isNaN(end)) {
+          skippedSegments++;
+          continue;
+        }
+
+        transcriptSegments.push({
+          start,
+          end,
+          text: segment.snippet.toString().trim(),
+        });
+      } else {
+        skippedSegments++;
+      }
+    }
+
+    if (transcriptSegments.length === 0) {
+      if (logs) {
+        logs.push({
+          api_call: 'getYouTubeTranscript',
+          request: { videoId },
+          response: null,
+          error: `No valid segments after parsing. Total raw: ${segments.length}, skipped: ${skippedSegments}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return null;
+    }
+
+    const fullText = transcriptSegments.map((s) => s.text).join('\n');
+
     if (logs) {
       logs.push({
         api_call: 'getYouTubeTranscript',
-        request: requestParams,
+        request: { videoId },
         response: {
-          segmentCount: transcriptList.length,
-          rawData: transcriptList, // Store complete raw response
+          segmentCount: transcriptSegments.length,
+          skippedSegments,
+          selectedLanguage,
+          availableLanguages,
         },
         timestamp: new Date().toISOString(),
       });
     }
 
-    if (!transcriptList || transcriptList.length === 0) {
-      return null;
-    }
-
-    // Convert to project format
-    const segments: TranscriptSegment[] = transcriptList.map(
-      (item: { start: number; duration: number; text: string }) => ({
-        start: item.start,
-        end: item.start + item.duration,
-        text: item.text,
-      })
-    );
-
-    const fullText = segments.map(s => s.text).join('\n');
-
     return {
       fullText,
-      segments,
-      language: 'en',
+      segments: transcriptSegments,
+      language: selectedLanguage,
     };
   } catch (error) {
-    // Log error
+    resetYouTube();
     if (logs) {
       logs.push({
         api_call: 'getYouTubeTranscript',
-        request: { videoId, lang: 'en' },
+        request: { videoId },
         response: null,
         error: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString(),
