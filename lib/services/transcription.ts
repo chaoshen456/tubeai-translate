@@ -144,36 +144,23 @@ async function downloadYouTubeAudio(videoId: string): Promise<Buffer> {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   // Use dynamic require to handle optional dependency
-  // This bypasses TypeScript checks since ytdl-core may not be installed
-  const ytdlModule = await new Promise<
-    | {
-        default: (
-          url: string,
-          options?: Record<string, unknown>
-        ) => {
-          on: (event: string, callback: (chunk: Buffer) => void) => void;
-        };
-      }
-    | undefined
-  >((resolve, reject) => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require('ytdl-core');
-      resolve(mod);
-    } catch {
-      reject(
-        new Error(
-          'ytdl-core not installed. Install it with: npm install ytdl-core @types/ytdl-core'
-        )
-      );
-    }
-  });
+  // In CommonJS, ytdl-core exports the function directly
+  let ytdlFn: (url: string, options?: Record<string, unknown>) => {
+    on: (event: string, callback: (chunk: Buffer) => void) => void;
+  };
 
-  if (!ytdlModule) {
-    throw new Error('ytdl-core not available');
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('ytdl-core');
+    // Handle both ESM default export and CommonJS direct export
+    ytdlFn = mod.default || mod;
+  } catch {
+    throw new Error(
+      'ytdl-core not installed. Install it with: npm install ytdl-core @types/ytdl-core'
+    );
   }
 
-  const stream = ytdlModule.default(videoUrl, { quality: 'highestaudio' });
+  const stream = ytdlFn(videoUrl, { quality: 'highestaudio' });
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
