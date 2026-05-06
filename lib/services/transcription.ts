@@ -1,6 +1,7 @@
 // Transcription service with YouTube captions and Whisper fallback
 
-import { fetchVideoCaptions, downloadCaptionForVideo, YouTubeApiLogEntry } from './youtube';
+import { fetchTranscript } from 'youtube-transcript';
+import { YouTubeApiLogEntry } from './youtube';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
 const WHISPER_MODEL = 'openai/whisper-large-v3';
@@ -101,44 +102,61 @@ export function formatTimestamp(seconds: number): string {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Get transcript from YouTube captions
+// Get transcript from YouTube using youtube-transcript
 export async function getYouTubeTranscript(
   videoId: string,
   logs?: YouTubeApiLogEntry[]
 ): Promise<Transcript | null> {
   try {
-    const captions = await fetchVideoCaptions(videoId, logs);
+    const requestParams = { videoId, lang: 'en' };
 
-    // Prefer English captions
-    const englishCaption = captions.find(c => c.language === 'en') || captions[0];
+    // Use youtube-transcript to fetch transcript
+    const transcriptList = await fetchTranscript(videoId, {
+      lang: 'en', // Prefer English
+    });
 
-    if (!englishCaption) {
+    // Log complete raw response for debugging
+    if (logs) {
+      logs.push({
+        api_call: 'getYouTubeTranscript',
+        request: requestParams,
+        response: {
+          segmentCount: transcriptList.length,
+          rawData: transcriptList, // Store complete raw response
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!transcriptList || transcriptList.length === 0) {
       return null;
     }
 
-    // Use new TimedText API
-    const captionContent = await downloadCaptionForVideo(
-      videoId,
-      englishCaption.language,
-      englishCaption.name,
-      logs
-    );
-
-    // TimedText API returns XML format, convert to parseable format
-    const segments = parseTimedTextXML(captionContent);
-
-    if (segments.length === 0) {
-      return null;
-    }
+    // Convert to project format
+    const segments: TranscriptSegment[] = transcriptList.map((item: { start: number; duration: number; text: string }) => ({
+      start: item.start,
+      end: item.start + item.duration,
+      text: item.text,
+    }));
 
     const fullText = segments.map(s => s.text).join('\n');
 
     return {
       fullText,
       segments,
-      language: englishCaption.language,
+      language: 'en',
     };
-  } catch {
+  } catch (error) {
+    // Log error
+    if (logs) {
+      logs.push({
+        api_call: 'getYouTubeTranscript',
+        request: { videoId, lang: 'en' },
+        response: null,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+      });
+    }
     return null;
   }
 }

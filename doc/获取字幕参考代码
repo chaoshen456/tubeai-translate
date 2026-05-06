@@ -1,0 +1,75 @@
+// main.ts
+import { YoutubeTranscript } from 'youtube-transcript-api';
+import OpenAI from 'openai';
+
+// 初始化 OpenAI/OpenRouter 客户端
+const openai = new OpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY || '',
+  defaultHeaders: {
+    'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
+    'X-OpenRouter-Title': 'YouTube Transcript Tool',
+  },
+});
+
+/**
+ * 主方法：获取字幕 + 翻译 + 输出
+ */
+async function main() {
+  // 1. 配置视频ID（这里用你截图里的视频，可替换）
+  const videoId = 'XGh1Hq-Vk-8';
+  const targetLang = 'zh'; // 目标翻译语言
+
+  try {
+    console.log(`开始获取视频 ${videoId} 的字幕...`);
+
+    // 2. 从 YouTube 直接获取字幕（和 Tactiq 同原理）
+    const transcriptList = await YoutubeTranscript.fetchTranscript(videoId, {
+      lang: 'en', // 优先获取英文字幕
+    });
+
+    // 3. 拼接成完整文本（原始字幕）
+    const originalText = transcriptList.map(item => item.text).join(' ');
+    console.log('✅ 原始字幕获取成功：\n', originalText.slice(0, 200) + '...');
+
+    // 4. 调用 LLM 翻译成中文
+    console.log('开始翻译为中文...');
+    const translationResponse = await openai.chat.completions.create({
+      model: 'openai/gpt-3.5-turbo', // 或用免费模型
+      messages: [
+        {
+          role: 'system',
+          content: `你是专业翻译，将以下英文视频字幕翻译成自然流畅的简体中文，保持原意不变，按时间顺序输出。`,
+        },
+        {
+          role: 'user',
+          content: originalText,
+        },
+      ],
+    });
+
+    const translatedText = translationResponse.choices[0]?.message?.content || '';
+    console.log('✅ 翻译完成：\n', translatedText.slice(0, 200) + '...');
+
+    // 5. 输出最终结果（可直接写入数据库）
+    const result = {
+      videoId,
+      originalText,
+      translatedText,
+      segments: transcriptList.map(item => ({
+        start: item.start,
+        duration: item.duration,
+        text: item.text,
+      })),
+    };
+
+    console.log('🎉 字幕处理完成！');
+    console.log('完整结果对象：', JSON.stringify(result, null, 2));
+
+  } catch (error) {
+    console.error('❌ 处理失败：', error);
+  }
+}
+
+// 执行 main 方法
+main();

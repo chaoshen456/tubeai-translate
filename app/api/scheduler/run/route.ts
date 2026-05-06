@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { fetchPopularAIVideos, YouTubeApiLogEntry } from '@/lib/services/youtube';
 import { translateTranscript } from '@/lib/services/translation';
+import { getYouTubeTranscript } from '@/lib/services/transcription';
 import type { VideoStatus } from '@/lib/db-types';
 
 export async function GET(request: NextRequest) {
@@ -64,7 +65,7 @@ async function runIngestion(request: NextRequest) {
 
         // Check transcript (with logging)
         const videoApiLogs: YouTubeApiLogEntry[] = [];
-        const transcript = await getYouTubeTranscriptSimple(video.id, videoApiLogs);
+        const transcript = await getYouTubeTranscript(video.id, videoApiLogs);
 
         if (!transcript) {
           // No captions available - mark as rejected with reason
@@ -72,7 +73,7 @@ async function runIngestion(request: NextRequest) {
             .from('videos')
             .update({
               status: 'Rejected' as VideoStatus,
-              rejection_note: '此视频无弹幕，由于合规问题，无法处理',
+              rejection_note: '此视频无字幕，无法处理',
               youtube_api_log: [...apiLogs, ...videoApiLogs],
             })
             .eq('id', newVideo.id);
@@ -80,8 +81,8 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Translate
-        const translated = await translateTranscript(transcript);
+        // Translate (use fullText from transcript)
+        const translated = await translateTranscript(transcript.fullText);
 
         // Update with transcript and translation
         await supabase
@@ -119,48 +120,4 @@ async function runIngestion(request: NextRequest) {
   }
 }
 
-// Get transcript from YouTube captions
-async function getYouTubeTranscriptSimple(
-  videoId: string,
-  logs?: YouTubeApiLogEntry[]
-): Promise<string | null> {
-  try {
-    const { fetchVideoCaptions, downloadCaptionForVideo } = await import('@/lib/services/youtube');
-
-    const captions = await fetchVideoCaptions(videoId, logs);
-    const englishCaption = captions.find((c) => c.language === 'en') || captions[0];
-
-    if (!englishCaption) {
-      return null;
-    }
-
-    // Use TimedText API to download caption
-    const content = await downloadCaptionForVideo(
-      videoId,
-      englishCaption.language,
-      englishCaption.name,
-      logs
-    );
-
-    // Parse XML format to extract text
-    const textRegex = /<text start="[^"]*" dur="[^"]*"[^>]*>([^<]*)<\/text>/g;
-    const textLines: string[] = [];
-    let match;
-
-    while ((match = textRegex.exec(content)) !== null) {
-      const text = match[1]
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-      if (text.trim()) {
-        textLines.push(text.trim());
-      }
-    }
-
-    return textLines.length > 0 ? textLines.join(' ') : null;
-  } catch {
-    return null;
-  }
-}
+// getYouTubeTranscriptSimple removed - now using getYouTubeTranscript from transcription.ts
