@@ -118,7 +118,7 @@ async function runIngestion(request: NextRequest) {
 // Get transcript from YouTube captions
 async function getYouTubeTranscriptSimple(videoId: string): Promise<string | null> {
   try {
-    const { fetchVideoCaptions, downloadCaption } = await import('@/lib/services/youtube');
+    const { fetchVideoCaptions, downloadCaptionForVideo } = await import('@/lib/services/youtube');
 
     const captions = await fetchVideoCaptions(videoId);
     const englishCaption = captions.find((c) => c.language === 'en') || captions[0];
@@ -127,29 +127,31 @@ async function getYouTubeTranscriptSimple(videoId: string): Promise<string | nul
       return null;
     }
 
-    let content: string;
-    try {
-      content = await downloadCaption(englishCaption.id, 'vtt');
-    } catch {
-      content = await downloadCaption(englishCaption.id, 'srt');
-    }
+    // Use TimedText API to download caption
+    const content = await downloadCaptionForVideo(
+      videoId,
+      englishCaption.language,
+      englishCaption.name
+    );
 
-    // Extract text only
-    const lines = content.split('\n');
+    // Parse XML format to extract text
+    const textRegex = /<text start="[^"]*" dur="[^"]*"[^>]*>([^<]*)<\/text>/g;
     const textLines: string[] = [];
-    let inTimestamp = false;
+    let match;
 
-    for (const line of lines) {
-      if (line.includes('-->') || /^\d+$/.test(line.trim())) {
-        inTimestamp = !inTimestamp;
-        continue;
-      }
-      if (!inTimestamp && line.trim() && !line.startsWith('<') && !line.startsWith('NOTE')) {
-        textLines.push(line.trim());
+    while ((match = textRegex.exec(content)) !== null) {
+      const text = match[1]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      if (text.trim()) {
+        textLines.push(text.trim());
       }
     }
 
-    return textLines.join(' ');
+    return textLines.length > 0 ? textLines.join(' ') : null;
   } catch {
     return null;
   }

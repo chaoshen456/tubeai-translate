@@ -109,51 +109,86 @@ interface YouTubeAPICaptionListResponse {
   items: YouTubeAPICaption[];
 }
 
-// Fetch video captions/subtitles
+// Fetch video captions/subtitles using TimedText API (no OAuth needed)
 export async function fetchVideoCaptions(videoId: string): Promise<YouTubeCaption[]> {
-  const url = new URL(`${YOUTUBE_API_BASE}/captions`);
+  try {
+    // Use TimedText API to get available caption tracks
+    const url = `https://www.youtube.com/api/timedtext?type=list&v=${videoId}`;
 
-  url.searchParams.set('part', 'snippet');
-  url.searchParams.set('videoId', videoId);
-  url.searchParams.set('key', YOUTUBE_API_KEY!);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
 
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    // Captions might not exist for the video
-    if (response.status === 403 || response.status === 404) {
+    if (!response.ok) {
       return [];
     }
-    const error = await response.text();
-    throw new Error(`YouTube Captions API error: ${response.status} - ${error}`);
+
+    const xmlText = await response.text();
+
+    // Parse XML to extract caption tracks
+    const captions: YouTubeCaption[] = [];
+    const trackRegex = /<track[^>]*?id="([^"]*)"[^>]*?name="([^"]*)"[^>]*?lang_code="([^"]*)"[^>]*?>/g;
+
+    let match;
+    while ((match = trackRegex.exec(xmlText)) !== null) {
+      captions.push({
+        id: match[1] || `${match[3]}-${match[2]}`,
+        videoId: videoId,
+        language: match[3],
+        name: match[2],
+        isDraft: false,
+        isDraftStore: false,
+        trackKind: 'standard',
+      });
+    }
+
+    return captions;
+  } catch {
+    return [];
   }
-
-  const data: YouTubeAPICaptionListResponse = await response.json();
-
-  // Transform nested structure to flat structure
-  return (data.items || []).map((c) => ({
-    id: c.id,
-    videoId: c.snippet.videoId,
-    language: c.snippet.language,
-    name: c.snippet.name,
-    isDraft: c.snippet.isDraft,
-    isDraftStore: c.snippet.isDraftStore,
-    trackKind: c.snippet.trackKind,
-  }));
 }
 
-// Download caption content
+// Download caption content using TimedText API
 export async function downloadCaption(captionId: string, tfmt: 'vtt' | 'srt' | 'ttml' = 'vtt'): Promise<string> {
-  const url = new URL(`${YOUTUBE_API_BASE}/captions`);
+  // captionId format: "lang-name" or just "lang"
+  const parts = captionId.split('-');
+  const lang = parts[0];
 
-  url.searchParams.set('id', captionId);
-  url.searchParams.set('tfmt', tfmt);
-  url.searchParams.set('key', YOUTUBE_API_KEY!);
+  // Build TimedText API URL
+  const url = new URL('https://www.youtube.com/api/timedtext');
+  url.searchParams.set('v', ''); // Will be set by caller
+  url.searchParams.set('lang', lang);
+  url.searchParams.set('name', parts.slice(1).join('-') || '');
 
-  const response = await fetch(url.toString());
+  // Extract videoId from context - need to pass it separately
+  // For now, we'll parse it from the captionId context or use a different approach
+
+  throw new Error('Use downloadCaptionForVideo instead');
+}
+
+// Download caption for a specific video using TimedText API
+export async function downloadCaptionForVideo(
+  videoId: string,
+  lang: string,
+  name?: string
+): Promise<string> {
+  const url = new URL('https://www.youtube.com/api/timedtext');
+  url.searchParams.set('v', videoId);
+  url.searchParams.set('lang', lang);
+  if (name) {
+    url.searchParams.set('name', name);
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
 
   if (!response.ok) {
-    throw new Error(`YouTube Caption Download error: ${response.status}`);
+    throw new Error(`TimedText API error: ${response.status}`);
   }
 
   return response.text();

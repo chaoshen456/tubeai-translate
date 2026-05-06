@@ -1,6 +1,6 @@
 // Transcription service with YouTube captions and Whisper fallback
 
-import { fetchVideoCaptions, downloadCaption } from './youtube';
+import { fetchVideoCaptions, downloadCaptionForVideo } from './youtube';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
 const WHISPER_MODEL = 'openai/whisper-large-v3';
@@ -113,17 +113,19 @@ export async function getYouTubeTranscript(videoId: string): Promise<Transcript 
       return null;
     }
 
-    let captionContent: string;
-    try {
-      captionContent = await downloadCaption(englishCaption.id, 'vtt');
-    } catch {
-      // Fallback to SRT format
-      captionContent = await downloadCaption(englishCaption.id, 'srt');
-    }
+    // Use new TimedText API
+    const captionContent = await downloadCaptionForVideo(
+      videoId,
+      englishCaption.language,
+      englishCaption.name
+    );
 
-    const segments = captionContent.includes('-->')
-      ? parseVTT(captionContent)
-      : parseSRT(captionContent);
+    // TimedText API returns XML format, convert to parseable format
+    const segments = parseTimedTextXML(captionContent);
+
+    if (segments.length === 0) {
+      return null;
+    }
 
     const fullText = segments.map(s => s.text).join('\n');
 
@@ -135,6 +137,36 @@ export async function getYouTubeTranscript(videoId: string): Promise<Transcript 
   } catch {
     return null;
   }
+}
+
+// Parse YouTube TimedText XML format
+function parseTimedTextXML(xml: string): TranscriptSegment[] {
+  const segments: TranscriptSegment[] = [];
+  // Match <text start="..." dur="...">...</text>
+  const textRegex = /<text start="([^"]*)" dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
+
+  let match;
+  while ((match = textRegex.exec(xml)) !== null) {
+    const start = parseFloat(match[1]);
+    const end = start + parseFloat(match[2]);
+    const text = decodeXMLText(match[3]);
+
+    if (text.trim()) {
+      segments.push({ start, end, text: text.trim() });
+    }
+  }
+
+  return segments;
+}
+
+// Decode XML entities
+function decodeXMLText(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 // Download audio from YouTube video for transcription
