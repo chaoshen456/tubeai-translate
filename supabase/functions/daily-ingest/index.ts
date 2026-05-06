@@ -55,18 +55,30 @@ serve(async (req) => {
 
         // Get transcript and translate
         const transcript = await getYouTubeTranscript(video.id.videoId);
-        if (transcript) {
-          const translated = await translateText(transcript);
 
+        if (!transcript) {
+          // No transcript available - mark for manual review
           await supabase
             .from('videos')
             .update({
-              original_text: transcript,
-              translated_text: translated,
               status: 'Pending Review',
+              rejection_note: 'No captions available for this video.',
             })
             .eq('id', newVideo.id);
+          processed++;
+          continue;
         }
+
+        const translated = await translateText(transcript);
+
+        await supabase
+          .from('videos')
+          .update({
+            original_text: transcript,
+            translated_text: translated,
+            status: 'Pending Review',
+          })
+          .eq('id', newVideo.id);
 
         processed++;
       } catch (error) {
@@ -125,11 +137,6 @@ async function fetchPopularAIVideos(maxResults: number): Promise<YouTubeVideo[]>
 }
 
 async function getYouTubeTranscript(videoId: string): Promise<string | null> {
-  // This is a placeholder - in production, you would:
-  // 1. Use YouTube Captions API
-  // 2. Or download audio and use Whisper
-
-  // For now, return null to skip videos without captions
   try {
     const apiKey = Deno.env.get('YOUTUBE_API_KEY');
     const captionsUrl = new URL('https://www.googleapis.com/youtube/v3/captions');
@@ -147,9 +154,31 @@ async function getYouTubeTranscript(videoId: string): Promise<string | null> {
     // Get first English caption
     const caption = data.items.find((c: { snippet: { language: string } }) => c.snippet.language === 'en') || data.items[0];
 
-    // Note: Downloading caption content requires additional API call
-    // This is simplified for the function template
-    return `Transcript for video ${videoId}`;
+    // Download caption content
+    const captionUrl = new URL('https://www.googleapis.com/youtube/v3/captions');
+    captionUrl.searchParams.set('id', caption.id);
+    captionUrl.searchParams.set('tfmt', 'vtt');
+    captionUrl.searchParams.set('key', apiKey || '');
+
+    const captionResponse = await fetch(captionUrl.toString());
+    const captionContent = await captionResponse.text();
+
+    // Parse VTT to extract text
+    const lines = captionContent.split('\n');
+    const textLines: string[] = [];
+    let inTimestamp = false;
+
+    for (const line of lines) {
+      if (line.includes('-->') || /^\d+$/.test(line.trim())) {
+        inTimestamp = !inTimestamp;
+        continue;
+      }
+      if (!inTimestamp && line.trim() && !line.startsWith('<') && !line.startsWith('NOTE')) {
+        textLines.push(line.trim());
+      }
+    }
+
+    return textLines.join(' ');
   } catch {
     return null;
   }

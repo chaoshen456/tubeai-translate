@@ -1,18 +1,9 @@
 // Transcription service with YouTube captions and Whisper fallback
 
 import { fetchVideoCaptions, downloadCaption } from './youtube';
-import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY,
-  defaultHeaders: {
-    'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
-    'X-OpenRouter-Title': 'YouTube AI Translator',
-  },
-});
-
-const WHISPER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+const WHISPER_MODEL = 'openai/whisper-large-v3';
 
 export interface TranscriptSegment {
   start: number;
@@ -146,47 +137,126 @@ export async function getYouTubeTranscript(videoId: string): Promise<Transcript 
   }
 }
 
-// Fallback to Whisper transcription
-export async function transcribeWithWhisper(
-  videoUrl: string,
-  language: string = 'en'
-): Promise<Transcript> {
-  // Note: In production, you would need to download the audio first
-  // This requires additional setup with youtube-dl or similar
-  // For now, this is a placeholder that shows the API usage
+// Download audio from YouTube video for transcription
+// Note: This requires ytdl-core to be installed
+// npm install ytdl-core @types/ytdl-core
+async function downloadYouTubeAudio(videoId: string): Promise<Buffer> {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  const transcription = await openai.audio.transcriptions.create({
-    file: await downloadAudio(videoUrl), // This is a placeholder - you need to implement audio download
-    model: WHISPER_MODEL,
-    language: language,
-    response_format: 'verbose_json',
-    timestamp_granularities: ['word'],
+  // Use dynamic require to handle optional dependency
+  // This bypasses TypeScript checks since ytdl-core may not be installed
+  const ytdlModule = await new Promise<
+    | {
+        default: (
+          url: string,
+          options?: Record<string, unknown>
+        ) => {
+          on: (event: string, callback: (chunk: Buffer) => void) => void;
+        };
+      }
+    | undefined
+  >((resolve, reject) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('ytdl-core');
+      resolve(mod);
+    } catch {
+      reject(
+        new Error(
+          'ytdl-core not installed. Install it with: npm install ytdl-core @types/ytdl-core'
+        )
+      );
+    }
   });
 
-  // Convert to our format
-  const segments = transcription.segments?.map(seg => ({
-    start: seg.start,
-    end: seg.end,
-    text: seg.text,
-  })) || [];
+  if (!ytdlModule) {
+    throw new Error('ytdl-core not available');
+  }
 
-  return {
-    fullText: transcription.text,
-    segments,
-    language: transcription.language,
-  };
+  const stream = ytdlModule.default(videoUrl, { quality: 'highestaudio' });
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
 }
 
-// Placeholder for audio download - you would need to implement this
-// using youtube-dl, yt-dlp, or similar
-async function downloadAudio(videoUrl: string): Promise<Blob> {
-  throw new Error('Audio download not implemented. Use youtube-dl or similar to extract audio.');
+// Public interface for audio transcription
+// Accepts pre-extracted audio buffer or extracts from videoId
+export async function transcribeAudio(
+  input: Buffer | string,
+  type: 'buffer' | 'videoId' = 'videoId',
+  format: 'wav' | 'mp3' | 'ogg' | 'm4a' = 'wav'
+): Promise<Transcript> {
+  let audioBuffer: Buffer;
+
+  if (type === 'videoId') {
+    audioBuffer = await downloadYouTubeAudio(input as string);
+  } else {
+    audioBuffer = input as Buffer;
+  }
+
+  return transcribeWithWhisper(audioBuffer, format);
+}
+
+// Fallback to Whisper transcription using OpenRouter
+export async function transcribeWithWhisper(
+  audioBuffer: Buffer,
+  format: 'wav' | 'mp3' | 'ogg' | 'm4a' = 'wav'
+): Promise<Transcript> {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('OPENROUTER_API_KEY is required for Whisper transcription');
+  }
+
+  const base64Audio = audioBuffer.toString('base64');
+
+  const response = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
+      'X-OpenRouter-Title': 'YouTube AI Translator',
+    },
+    body: JSON.stringify({
+      model: WHISPER_MODEL,
+      input_audio: {
+        data: base64Audio,
+        format: format,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Whisper transcription failed: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const text = result.text || '';
+
+  // Create simple segment from the full text
+  const segments: TranscriptSegment[] = [{
+    start: 0,
+    end: 0,
+    text: text,
+  }];
+
+  return {
+    fullText: text,
+    segments,
+    language: 'en',
+  };
 }
 
 // Main function to get transcript with fallback
 export async function getTranscript(
   videoId: string,
-  youtubeUrl: string
+  youtubeUrl?: string,
+  enableWhisperFallback: boolean = false
 ): Promise<Transcript> {
   // Try YouTube captions first
   const ytTranscript = await getYouTubeTranscript(videoId);
@@ -195,9 +265,11 @@ export async function getTranscript(
     return ytTranscript;
   }
 
-  // Fallback to Whisper
-  // Note: In production, implement proper audio extraction
-  // return await transcribeWithWhisper(youtubeUrl);
+  // Fallback to Whisper transcription
+  if (enableWhisperFallback) {
+    // Use videoId to fetch audio via ytdl-core and transcribe with Whisper
+    return await transcribeAudio(videoId, 'videoId', 'mp3');
+  }
 
-  throw new Error('No transcript available. Either add captions to the video or implement Whisper fallback.');
+  throw new Error('No transcript available. Either add captions to the video or enable Whisper fallback.');
 }

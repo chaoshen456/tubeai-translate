@@ -1,44 +1,67 @@
-# ai能力调用参考
+# AI Capabilities Reference
 
-使用openrouter调用模型，参考如下
+## OpenRouter Whisper Implementation
 
-... javascript
-import OpenAI from 'openai';
+Use OpenRouter with `openai/whisper-large-v3` model for audio transcription.
 
-const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: "<OPENROUTER_API_KEY>",
-  defaultHeaders: {
-    "HTTP-Referer": "<YOUR_SITE_URL>", // Optional. Site URL for rankings on openrouter.ai.
-    "X-OpenRouter-Title": "<YOUR_SITE_NAME>", // Optional. Site title for rankings on openrouter.ai.
+```javascript
+// Audio transcription using OpenRouter Whisper
+const audioBuffer = await fs.promises.readFile("audio.wav");
+const base64Audio = audioBuffer.toString("base64");
+
+const response = await fetch("https://openrouter.ai/api/v1/audio/transcriptions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json",
+    "HTTP-Referer": SITE_URL,
+    "X-OpenRouter-Title": "YouTube AI Translator",
   },
+  body: JSON.stringify({
+    model: "openai/whisper-large-v3",
+    input_audio: {
+      data: base64Audio,
+      format: "wav"
+    }
+  })
 });
 
-async function main() {
-  const completion = await openai.chat.completions.create({
-    model: "openai/gpt-4.1-mini",
-    messages: [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "What is in this image?"
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "https://live.staticflickr.com/3851/14825276609_098cac593d_b.jpg"
-            }
-          }
-        ]
-      }
-    ]
+const result = await response.json();
+console.log(result.text);
+```
+
+### YouTube Audio Extraction
+
+For YouTube videos, use `ytdl-core` to extract audio before transcribing:
+
+```bash
+npm install ytdl-core @types/ytdl-core
+```
+
+```javascript
+import ytdl from 'ytdl-core';
+import { transcribeWithWhisper } from '@/lib/services/transcription';
+
+async function transcribeYouTubeVideo(videoId) {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  
+  const audioBuffer = await new Promise((resolve, reject) => {
+    const chunks = [];
+    const stream = ytdl(videoUrl, { quality: 'highestaudio' });
+    
+    stream.on('data', chunk => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
   });
 
-  console.log(completion.choices[0].message);
+  return await transcribeWithWhisper(audioBuffer, 'mp3');
 }
+```
 
-main();
+### Scheduler Integration
 
-...
+The scheduler at `app/api/scheduler/run/route.ts` now:
+1. Fetches YouTube captions if available
+2. Falls back to Whisper transcription via ytdl-core
+3. Updates `original_text` and `translated_text` fields
+4. Sets rejection note if both methods fail

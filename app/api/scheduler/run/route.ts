@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { fetchPopularAIVideos } from '@/lib/services/youtube';
 import { translateTranscript } from '@/lib/services/translation';
+import { transcribeAudio } from '@/lib/services/transcription';
 import type { VideoStatus } from '@/lib/db-types';
 
 export async function GET(request: NextRequest) {
@@ -25,7 +26,7 @@ async function runIngestion(request: NextRequest) {
     const supabase = createAdminClient();
     let processed = 0;
     let skipped = 0;
-    let errors: string[] = [];
+    const errors: string[] = [];
 
     // Fetch popular AI videos
     const videos = await fetchPopularAIVideos(10);
@@ -61,26 +62,38 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Get transcript
+        // Get transcript from YouTube captions, with Whisper fallback
         const transcript = await getYouTubeTranscriptSimple(video.id);
+
+        let finalTranscript = transcript;
+
         if (!transcript) {
-          // Update status to indicate no transcript available
-          await supabase
-            .from('videos')
-            .update({ status: 'Pending Review' as VideoStatus })
-            .eq('id', newVideo.id);
-          processed++;
-          continue;
+          // Try Whisper as fallback if enabled
+          try {
+            const whisperResult = await transcribeAudio(video.id, 'videoId', 'mp3');
+            finalTranscript = whisperResult.fullText;
+          } catch (whisperError) {
+            // Whisper fallback failed - mark for manual review
+            await supabase
+              .from('videos')
+              .update({
+                status: 'Pending Review' as VideoStatus,
+                rejection_note: `No captions available. Whisper failed: ${whisperError instanceof Error ? whisperError.message : String(whisperError)}`,
+              })
+              .eq('id', newVideo.id);
+            processed++;
+            continue;
+          }
         }
 
         // Translate
-        const translated = await translateTranscript(transcript);
+        const translated = await translateTranscript(finalTranscript!);
 
         // Update with transcript and translation
         await supabase
           .from('videos')
           .update({
-            original_text: transcript,
+            original_text: finalTranscript,
             translated_text: translated,
             status: 'Pending Review' as VideoStatus,
           })
@@ -109,7 +122,7 @@ async function runIngestion(request: NextRequest) {
   }
 }
 
-// Simplified transcript fetch - only YouTube captions
+// Get transcript from YouTube captions, with fallback to Whisper via transcription service
 async function getYouTubeTranscriptSimple(videoId: string): Promise<string | null> {
   try {
     const { fetchVideoCaptions, downloadCaption } = await import('@/lib/services/youtube');
