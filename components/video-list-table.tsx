@@ -125,6 +125,17 @@ export function VideoListTable() {
           <Search className="w-4 h-4 mr-2" />
           查询
         </Button>
+
+        <Button
+          onClick={() => {
+            setStatusFilter('all');
+            setSearchQuery('');
+          }}
+          variant="outline"
+          className="h-10 rounded-xl px-4 text-[13px]"
+        >
+          全部
+        </Button>
       </div>
 
       {/* Table */}
