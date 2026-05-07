@@ -19,13 +19,13 @@ export default function Page() {
           </div>
           <h2 className="text-3xl font-bold mb-4 leading-tight">AI 视频翻译<br />自动化平台</h2>
           <p className="text-[14px] text-white/50 leading-relaxed mb-8 max-w-sm">
-            自动化获取 YouTube AI 前沿视频，智能翻译为中文，一键发布到知乎。
+            自动化获取 YouTube AI 前沿视频，智能翻译为中文。
           </p>
           <div className="space-y-4">
             {[
               '自动抓取 YouTube AI 热门视频',
               'AI 智能翻译，保持技术准确性',
-              '一键发布到知乎，轻松管理',
+              '轻松管理翻译内容',
             ].map((feature, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
