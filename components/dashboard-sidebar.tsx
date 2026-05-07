@@ -6,6 +6,8 @@ import { LayoutDashboard, Video, Settings, LogOut, Zap } from 'lucide-react';
 
 const navItems = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard, href: '/dashboard' },
+  { id: 'videos', label: '视频管理', icon: Video, href: '/dashboard/videos' },
+  { id: 'settings', label: '设置', icon: Settings, href: '/dashboard/settings' },
 ];
 
 export function DashboardSidebar() {

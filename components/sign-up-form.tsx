@@ -3,13 +3,6 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
@@ -34,7 +27,7 @@ export function SignUpForm({
     setError(null);
 
     if (password !== repeatPassword) {
-      setError("Passwords do not match");
+      setError("两次输入的密码不一致");
       setIsLoading(false);
       return;
     }
@@ -44,13 +37,13 @@ export function SignUpForm({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/protected`,
+          emailRedirectTo: `${window.location.origin}/dashboard`,
         },
       });
       if (error) throw error;
       router.push("/auth/sign-up-success");
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(error instanceof Error ? error.message : "注册失败");
     } finally {
       setIsLoading(false);
     }
@@ -58,63 +51,79 @@ export function SignUpForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Sign up</CardTitle>
-          <CardDescription>Create a new account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSignUp}>
-            <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="m@example.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="repeat-password">Repeat Password</Label>
-                </div>
-                <Input
-                  id="repeat-password"
-                  type="password"
-                  required
-                  value={repeatPassword}
-                  onChange={(e) => setRepeatPassword(e.target.value)}
-                />
-              </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Creating an account..." : "Sign up"}
-              </Button>
-            </div>
-            <div className="mt-4 text-center text-sm">
-              Already have an account?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
-                Login
-              </Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <div className="rounded-2xl border border-border bg-white shadow-sm p-8">
+        <div className="mb-6">
+          <h1 className="text-xl font-bold text-primary">注册</h1>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            创建您的账户
+          </p>
+        </div>
+
+        <form onSubmit={handleSignUp} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="email" className="text-[13px] font-medium">邮箱</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="m@example.com"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="h-10 rounded-xl text-[13px]"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="password" className="text-[13px] font-medium">密码</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="请输入密码"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="h-10 rounded-xl text-[13px]"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="repeat-password" className="text-[13px] font-medium">确认密码</Label>
+            <Input
+              id="repeat-password"
+              type="password"
+              placeholder="请再次输入密码"
+              required
+              value={repeatPassword}
+              onChange={(e) => setRepeatPassword(e.target.value)}
+              className="h-10 rounded-xl text-[13px]"
+            />
+          </div>
+
+          {error && (
+            <p className="text-[13px] text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
+          )}
+
+          <Button
+            type="submit"
+            className="w-full h-10 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-medium text-[13px] border-0"
+            disabled={isLoading}
+          >
+            {isLoading ? "创建账户中..." : "注册"}
+          </Button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-[13px] text-muted-foreground">
+            已有账户？{" "}
+            <Link
+              href="/auth/login"
+              className="text-amber-600 hover:text-amber-700 font-medium underline-offset-4 hover:underline"
+            >
+              立即登录
+            </Link>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
