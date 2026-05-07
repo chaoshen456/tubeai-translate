@@ -12,7 +12,7 @@ const openai = new OpenAI({
   },
 });
 
-const GPT_MODEL = process.env.OPENROUTER_MODEL;
+const GPT_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
 const MAX_TOKENS_PER_CHUNK = 2000;
 
 // Translation prompt template
