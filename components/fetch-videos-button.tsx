@@ -26,6 +26,19 @@ const SOURCE_OPTIONS = [
   { value: 'channel', label: '博主视频' },
 ];
 
+const CHANNEL_OPTIONS = [
+  { value: 'TEDx Talks', label: 'TEDx Talks' },
+  { value: 'Fabio Bergmann', label: 'Fabio Bergmann' },
+  { value: 'Mediastorm', label: 'Mediastorm' },
+  { value: 'Lex Fridman', label: 'Lex Fridman' },
+  { value: 'Sean Kochel', label: 'Sean Kochel' },
+  { value: 'Yannic Kilcher', label: 'Yannic Kilcher' },
+  { value: 'AssemblyAI', label: 'AssemblyAI' },
+  { value: 'CodeWithAntonio', label: 'CodeWithAntonio' },
+  { value: 'Matt Williams', label: 'Matt Williams' },
+  { value: 'RAGFlow Official', label: 'RAGFlow Official' },
+];
+
 export function FetchVideosButton() {
   const [isFetching, setIsFetching] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -98,13 +111,18 @@ export function FetchVideosButton() {
       </Select>
 
       {source === 'channel' && (
-        <input
-          type="text"
-          placeholder="输入博主名称或频道ID..."
-          value={channelInput}
-          onChange={(e) => setChannelInput(e.target.value)}
-          className="w-[200px] px-3 py-2 border rounded-md text-sm"
-        />
+        <Select value={channelInput} onValueChange={setChannelInput}>
+          <SelectTrigger className="w-[200px] rounded-xl text-[13px]">
+            <SelectValue placeholder="选择博主" />
+          </SelectTrigger>
+          <SelectContent>
+            {CHANNEL_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
 
       <Select value={count} onValueChange={setCount}>

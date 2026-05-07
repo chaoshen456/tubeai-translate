@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { Skeleton } from './ui/skeleton';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Play } from 'lucide-react';
 import { VideoDetailDrawer } from './video-detail-drawer';
 import { Pagination, PaginationInfo } from './ui/pagination';
 
@@ -67,17 +67,15 @@ export function VideoListTable() {
     );
   }
 
-  // Helper: get first 1-2 sentences (split by Chinese/English period)
+  // Helper: get first 1-2 sentences
   function getPreviewText(text: string | null): string {
     if (!text) return '-';
-    // Split by Chinese period "。" or English period ". "
     const sentences = text.split(/(?<=。)|(?<=\. )\s*/);
     const firstSentences = sentences.filter(s => s.trim()).slice(0, 2);
     const preview = firstSentences.join('').trim();
     return preview.length > 80 ? preview.slice(0, 80) + '...' : preview;
   }
 
-  // Helper: get first 3-4 sentences for hover tooltip
   function getTooltipText(text: string | null): string {
     if (!text) return '暂无内容';
     const sentences = text.split(/(?<=。)|(?<=\. )\s*/);
@@ -87,18 +85,25 @@ export function VideoListTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-4">
-        <Input
-          placeholder="搜索视频..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-sm"
-        />
+      {/* Filters */}
+      <div className="flex gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Input
+            placeholder="搜索视频..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-10 rounded-xl border-input bg-transparent px-3 text-[13px] pl-9 focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8" strokeWidth="2" />
+            <path d="M21 21l-4.35-4.35" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
         <Select
           value={statusFilter}
           onValueChange={(value) => setStatusFilter(value as VideoStatus | 'all')}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="h-10 rounded-xl w-[160px] text-[13px]">
             <SelectValue placeholder="筛选状态" />
           </SelectTrigger>
           <SelectContent>
@@ -112,88 +117,113 @@ export function VideoListTable() {
         </Select>
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-muted">
-            <tr>
-              <th className="px-4 py-3 text-left text-sm font-medium">视频</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">标题</th>
-              <th className="px-4 py-3 text-left text-sm font-medium max-w-[300px]">视频内容</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">状态</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">抓取时间</th>
-              <th className="px-4 py-3 text-left text-sm font-medium">原视频</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredVideos?.map((video) => (
-              <tr key={video.id} className="border-t hover:bg-muted/50">
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/videos/${video.id}`}
-                    className="flex items-center gap-3 hover:underline"
-                  >
-                    {video.thumbnail_url && (
-                      <img
-                        src={video.thumbnail_url}
-                        alt={video.title}
-                        className="w-20 h-11 object-cover rounded"
-                      />
-                    )}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">
-                  <Link href={`/videos/${video.id}`} className="hover:underline">
-                    <span className="font-medium line-clamp-2">{video.title}</span>
-                  </Link>
-                </td>
-                <td className="px-4 py-3 max-w-[300px]">
-                  <span
-                    className="text-sm text-muted-foreground cursor-help"
-                    title={getTooltipText(video.translated_text)}
-                  >
-                    {getPreviewText(video.translated_text)}
+      {/* Table */}
+      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+        <div className="px-6 py-5 border-b border-border">
+          <h2 className="text-[15px] font-semibold text-primary">视频列表</h2>
+          <p className="text-[13px] text-muted-foreground mt-0.5">管理和监控你的视频翻译</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-[#fafafa]/80">
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">视频</th>
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">标题</th>
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">内容预览</th>
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">状态</th>
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">抓取时间</th>
+                <th className="text-left px-6 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">原视频</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredVideos?.map((video) => (
+                <tr key={video.id} className="hover:bg-[#fafafa]/60 transition-colors group">
+                  {/* Thumbnail */}
+                  <td className="px-6 py-4">
+                    <Link href={`/videos/${video.id}`} className="block">
+                      <div className="w-[88px] h-[50px] rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 relative">
+                        {video.thumbnail_url && (
+                          <img
+                            src={video.thumbnail_url}
+                            alt={video.title}
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
+                          <Play className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+                    </Link>
+                  </td>
+
+                  {/* Title */}
+                  <td className="px-6 py-4">
+                    <Link href={`/videos/${video.id}`} className="hover:underline">
+                      <span className="text-[13px] font-semibold text-primary block truncate max-w-[280px]">
+                        {video.title}
+                      </span>
+                    </Link>
+                  </td>
+
+                  {/* Content Preview */}
+                  <td className="px-6 py-4 hidden md:table-cell max-w-[300px]">
+                    <span
+                      className="text-[13px] text-muted-foreground cursor-help block truncate"
+                      title={getTooltipText(video.translated_text)}
+                    >
+                      {getPreviewText(video.translated_text)}
+                    </span>
                     {video.translated_text && (
                       <button
                         onClick={() => setSelectedVideoId(video.id)}
-                        className="ml-2 text-xs text-blue-600 hover:underline align-top"
+                        className="ml-1 text-[12px] text-blue-600 hover:underline align-top"
                       >
                         查看全文
                       </button>
                     )}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <VideoStatusBadge status={video.status} />
-                </td>
-                <td className="px-4 py-3 text-sm text-muted-foreground">
-                  {new Date(video.ingest_time).toLocaleString()}
-                </td>
-                <td className="px-4 py-3">
-                  <a
-                    href={`https://www.youtube.com/watch?v=${video.youtube_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    原视频
-                  </a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </td>
 
-      {filteredVideos?.length === 0 && (
-        <p className="text-center py-8 text-muted-foreground">
-          {statusFilter !== 'all' ? `没有状态为"${VIDEO_STATUSES_ZH[statusFilter]}"的视频` : '暂无视频'}
-        </p>
-      )}
+                  {/* Status */}
+                  <td className="px-6 py-4">
+                    <VideoStatusBadge status={video.status} />
+                  </td>
+
+                  {/* Ingest Time */}
+                  <td className="px-6 py-4 text-[13px] text-muted-foreground hidden sm:table-cell">
+                    {new Date(video.ingest_time).toLocaleDateString('zh-CN')}
+                  </td>
+
+                  {/* 原视频 */}
+                  <td className="px-6 py-4">
+                    <a
+                      href={`https://www.youtube.com/watch?v=${video.youtube_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[13px] text-blue-600 hover:text-blue-700 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      原视频
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredVideos?.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-[13px] text-muted-foreground">
+              {statusFilter !== 'all' ? `没有状态为"${VIDEO_STATUSES_ZH[statusFilter]}"的视频` : '暂无视频'}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Pagination */}
       {videos.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t">
+        <div className="flex items-center justify-between px-4 py-3">
           <PaginationInfo
             currentPage={pagination.currentPage}
             pageSize={pagination.pageSize}
@@ -204,7 +234,6 @@ export function VideoListTable() {
             totalPages={pagination.totalPages}
             onPageChange={(newPage) => {
               setPage(newPage);
-              // Scroll to top
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
@@ -214,10 +243,10 @@ export function VideoListTable() {
               value={pageSize.toString()}
               onValueChange={(value) => {
                 setPageSize(parseInt(value, 10));
-                setPage(1); // Reset to first page
+                setPage(1);
               }}
             >
-              <SelectTrigger className="w-[80px]">
+              <SelectTrigger className="w-[80px] h-9 rounded-lg">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -243,15 +272,17 @@ export function VideoListTable() {
 function VideoListSkeleton() {
   return (
     <div className="space-y-4">
-      <div className="flex gap-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-10 w-44" />
+      <div className="flex gap-3">
+        <Skeleton className="h-10 w-64 rounded-xl" />
+        <Skeleton className="h-10 w-44 rounded-xl" />
       </div>
-      <div className="border rounded-lg">
+      <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-4 p-4 border-t">
-            <Skeleton className="w-20 h-11 rounded" />
-            <Skeleton className="h-5 flex-1" />
+          <div key={i} className="flex items-center gap-4 px-6 py-4 border-t border-border">
+            <Skeleton className="w-[88px] h-[50px] rounded-lg" />
+            <div className="flex-1">
+              <Skeleton className="h-5 w-3/4" />
+            </div>
             <Skeleton className="h-5 w-24" />
             <Skeleton className="h-5 w-32" />
             <Skeleton className="h-5 w-20" />

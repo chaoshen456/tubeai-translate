@@ -16,18 +16,20 @@ const GPT_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini';
 const MAX_TOKENS_PER_CHUNK = 2000;
 
 // Translation prompt template
-const TRANSLATION_PROMPT = `You are a professional translator specializing in AI and technology content. Translate the following English text to Chinese (Simplified), maintaining the technical accuracy and natural flow.
+const TRANSLATION_PROMPT = `你是一位专业的AI和技术内容翻译师。请将以下英文文本翻译成简体中文。
 
-Key translation guidelines:
-1. Preserve technical terms accurately (e.g., neural networks, transformer, etc.)
-2. Keep proper nouns and brand names in their original form when appropriate
-3. Maintain the casual/conversational tone of the original speaker
-4. Context: This is from a YouTube tech video, so keep it engaging and easy to understand
+翻译要求：
+1. 输出必须是纯中文，不要混杂英文单词、注释或解释
+2. 技术术语用中文常用译法（如：neural networks→神经网络，transformer→变换器）
+3. 专有名词和品牌名也翻译为中文（如：YouTube→优兔，OpenAI→开放人工智能）
+4. 保持原视频的口语化、自然的语气，像一篇流畅的中文文章
+5. 段落分明，句子通顺，方便阅读
+6. 只输出翻译结果，不要有任何前缀、说明或解释
 
-Text to translate:
+待翻译文本：
 "{text}"
 
-Chinese translation:`;
+中文翻译：`;
 
 // Translate a single text segment
 async function translateText(text: string): Promise<string> {

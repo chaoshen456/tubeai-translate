@@ -1,13 +1,37 @@
 import type { VideoStatus } from '@/lib/db-types';
 import { cn } from '@/lib/utils';
 
-const statusStyles: Record<VideoStatus, string> = {
-  'Pending Translation': 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
-  'Pending Review': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  Approved: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  Rejected: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  'Ready to Publish': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  Published: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+const statusConfig: Record<VideoStatus, { label: string; color: string; dot: string }> = {
+  'Pending Translation': {
+    label: '待翻译',
+    color: 'bg-gray-50 text-gray-600 border-gray-200',
+    dot: 'bg-gray-400',
+  },
+  'Pending Review': {
+    label: '待审核',
+    color: 'bg-amber-50 text-amber-700 border-amber-200',
+    dot: 'bg-amber-500',
+  },
+  Approved: {
+    label: '已通过',
+    color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+  Rejected: {
+    label: '已驳回',
+    color: 'bg-red-50 text-red-700 border-red-200',
+    dot: 'bg-red-500',
+  },
+  'Ready to Publish': {
+    label: '待发布',
+    color: 'bg-sky-50 text-sky-700 border-sky-200',
+    dot: 'bg-sky-500',
+  },
+  Published: {
+    label: '已发布',
+    color: 'bg-purple-50 text-purple-700 border-purple-200',
+    dot: 'bg-purple-500',
+  },
 };
 
 interface VideoStatusBadgeProps {
@@ -16,15 +40,17 @@ interface VideoStatusBadgeProps {
 }
 
 export function VideoStatusBadge({ status, className }: VideoStatusBadgeProps) {
+  const config = statusConfig[status];
   return (
     <span
       className={cn(
-        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-        statusStyles[status],
+        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold border',
+        config.color,
         className
       )}
     >
-      {status}
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+      {config.label}
     </span>
   );
 }
