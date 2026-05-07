@@ -384,3 +384,266 @@ export function extractVideoId(url: string): string | null {
 
   return null;
 }
+
+// AI-related search queries for finding cutting-edge AI videos
+const AI_SEARCH_QUERIES = [
+  'AI artificial intelligence',
+  'machine learning',
+  'GPT LLM',
+  'transformer neural network',
+  'AI tutorial',
+  'deep learning',
+  'OpenAI Anthropic',
+  'AI agent',
+  'prompt engineering',
+  'AI coding assistant',
+];
+
+// Search YouTube videos for AI-related content (cutting-edge, trending)
+export async function searchAIVideos(
+  maxResults: number = 10,
+  order: 'relevance' | 'viewCount' | 'date' = 'viewCount',
+  logs?: YouTubeApiLogEntry[]
+): Promise<YouTubeVideo[]> {
+  // Build search query from AI keywords
+  const query = AI_SEARCH_QUERIES.slice(0, 3).join(' | '); // Combine top queries
+
+  const url = new URL(`${YOUTUBE_API_BASE}/search`);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('q', query);
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('maxResults', Math.min(maxResults * 2, 50).toString()); // Fetch more to filter
+  url.searchParams.set('order', order);
+  url.searchParams.set('key', YOUTUBE_API_KEY!);
+
+  const requestParams = {
+    url: url.toString(),
+    part: 'snippet',
+    q: query,
+    type: 'video',
+    maxResults: maxResults * 2,
+    order,
+  };
+
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      const error = await response.text();
+      const errorMsg = `YouTube Search API error: ${response.status} - ${error}`;
+      if (logs) {
+        logApiCall(logs, 'searchAIVideos', requestParams, null, errorMsg);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+
+    if (logs) {
+      logApiCall(logs, 'searchAIVideos', requestParams, {
+        itemCount: data.items?.length || 0,
+        items: (data.items || []).slice(0, 5).map((v: { snippet?: { title?: string }; id?: { videoId?: string } }) => ({
+          id: v.id?.videoId,
+          title: v.snippet?.title,
+        })),
+      });
+    }
+
+    // Get video IDs
+    const videoIds = (data.items || [])
+      .map((item: { id?: { videoId?: string } }) => item.id?.videoId)
+      .filter((id: string | undefined): id is string => Boolean(id))
+      .slice(0, maxResults)
+      .join(',');
+
+    if (!videoIds) {
+      return [];
+    }
+
+    // Fetch video details (thumbnails, etc.)
+    const detailsUrl = new URL(`${YOUTUBE_API_BASE}/videos`);
+    detailsUrl.searchParams.set('part', 'snippet');
+    detailsUrl.searchParams.set('id', videoIds);
+    detailsUrl.searchParams.set('key', YOUTUBE_API_KEY!);
+
+    const detailsResponse = await fetch(detailsUrl.toString());
+    const detailsData = await detailsResponse.json();
+
+    return (detailsData.items || []).map((v: {
+      id: string;
+      snippet: {
+        title: string;
+        description: string;
+        thumbnails: { default: { url: string }; medium: { url: string }; high: { url: string } };
+        channelTitle: string;
+        publishedAt: string;
+      };
+    }) => ({
+      id: v.id,
+      title: v.snippet.title,
+      description: v.snippet.description,
+      thumbnails: v.snippet.thumbnails,
+      channelTitle: v.snippet.channelTitle,
+      publishedAt: v.snippet.publishedAt,
+    }));
+
+  } catch (error) {
+    if (logs) {
+      logApiCall(logs, 'searchAIVideos', requestParams, null, error instanceof Error ? error.message : String(error));
+    }
+    throw error;
+  }
+}
+// Search for a YouTube channel by name or handle
+export async function searchChannel(
+  channelQuery: string,
+  logs?: YouTubeApiLogEntry[]
+): Promise<{ id: string; title: string; description: string } | null> {
+  const url = new URL(`${YOUTUBE_API_BASE}/search`);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('type', 'channel');
+  url.searchParams.set('q', channelQuery);
+  url.searchParams.set('maxResults', '5');
+  url.searchParams.set('key', YOUTUBE_API_KEY!);
+
+  const requestParams = {
+    url: url.toString(),
+    part: 'snippet',
+    type: 'channel',
+    q: channelQuery,
+    maxResults: 5,
+  };
+
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      const error = await response.text();
+      const errorMsg = `YouTube Channel Search API error: ${response.status} - ${error}`;
+      if (logs) {
+        logApiCall(logs, 'searchChannel', requestParams, null, errorMsg);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+
+    if (logs) {
+      logApiCall(logs, 'searchChannel', requestParams, {
+        itemCount: data.items?.length || 0,
+        items: (data.items || []).slice(0, 3).map((c: { id?: { channelId?: string }; snippet?: { title?: string } }) => ({
+          id: c.id?.channelId,
+          title: c.snippet?.title,
+        })),
+      });
+    }
+
+    if (!data.items || data.items.length === 0) {
+      return null;
+    }
+
+    // Return the first matching channel
+    const channel = data.items[0];
+    return {
+      id: channel.id?.channelId || channel.id,
+      title: channel.snippet?.title || '',
+      description: channel.snippet?.description || '',
+    };
+  } catch (error) {
+    if (logs) {
+      logApiCall(logs, 'searchChannel', requestParams, null, error instanceof Error ? error.message : String(error));
+    }
+    throw error;
+  }
+}
+
+// Fetch videos from a specific YouTube channel
+export async function fetchVideosByChannel(
+  channelId: string,
+  maxResults: number = 10,
+  logs?: YouTubeApiLogEntry[]
+): Promise<YouTubeVideo[]> {
+  const url = new URL(`${YOUTUBE_API_BASE}/search`);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('channelId', channelId);
+  url.searchParams.set('maxResults', Math.min(maxResults, 50).toString());
+  url.searchParams.set('order', 'date');
+  url.searchParams.set('key', YOUTUBE_API_KEY!);
+
+  const requestParams = {
+    url: url.toString(),
+    part: 'snippet',
+    type: 'video',
+    channelId,
+    maxResults,
+    order: 'date',
+  };
+
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      const error = await response.text();
+      const errorMsg = `YouTube Channel Videos API error: ${response.status} - ${error}`;
+      if (logs) {
+        logApiCall(logs, 'fetchVideosByChannel', requestParams, null, errorMsg);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+
+    if (logs) {
+      logApiCall(logs, 'fetchVideosByChannel', requestParams, {
+        itemCount: data.items?.length || 0,
+        items: (data.items || []).slice(0, 3).map((v: { id?: { videoId?: string }; snippet?: { title?: string } }) => ({
+          id: v.id?.videoId,
+          title: v.snippet?.title,
+        })),
+      });
+    }
+
+    // Get video IDs
+    const videoIds = (data.items || [])
+      .map((item: { id?: { videoId?: string } }) => item.id?.videoId)
+      .filter((id: string | undefined): id is string => Boolean(id))
+      .join(',');
+
+    if (!videoIds) {
+      return [];
+    }
+
+    // Fetch video details (thumbnails, etc.)
+    const detailsUrl = new URL(`${YOUTUBE_API_BASE}/videos`);
+    detailsUrl.searchParams.set('part', 'snippet');
+    detailsUrl.searchParams.set('id', videoIds);
+    detailsUrl.searchParams.set('key', YOUTUBE_API_KEY!);
+
+    const detailsResponse = await fetch(detailsUrl.toString());
+    const detailsData = await detailsResponse.json();
+
+    return (detailsData.items || []).map((v: {
+      id: string;
+      snippet: {
+        title: string;
+        description: string;
+        thumbnails: { default: { url: string }; medium: { url: string }; high: { url: string } };
+        channelTitle: string;
+        publishedAt: string;
+      };
+    }) => ({
+      id: v.id,
+      title: v.snippet.title,
+      description: v.snippet.description,
+      thumbnails: v.snippet.thumbnails,
+      channelTitle: v.snippet.channelTitle,
+      publishedAt: v.snippet.publishedAt,
+    }));
+  } catch (error) {
+    if (logs) {
+      logApiCall(logs, 'fetchVideosByChannel', requestParams, null, error instanceof Error ? error.message : String(error));
+    }
+    throw error;
+  }
+}

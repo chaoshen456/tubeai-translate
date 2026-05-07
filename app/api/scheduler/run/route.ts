@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
-import { fetchPopularAIVideos, YouTubeApiLogEntry } from '@/lib/services/youtube';
+import {
+  fetchPopularAIVideos,
+  searchAIVideos,
+  searchChannel,
+  fetchVideosByChannel,
+  YouTubeApiLogEntry,
+} from '@/lib/services/youtube';
 import { translateTranscript } from '@/lib/services/translation';
 import { getYouTubeTranscript } from '@/lib/services/transcription';
 import type { VideoStatus } from '@/lib/db-types';
@@ -22,6 +28,13 @@ async function runIngestion(request: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Get parameters from query params
+  const url = new URL(request.url);
+  const source = url.searchParams.get('source') || 'search'; // 'popular', 'search', or 'channel'
+  const channel = url.searchParams.get('channel') || '';
+  const maxResults = parseInt(url.searchParams.get('maxResults') || '10', 10);
+  const validMaxResults = Math.min(Math.max(maxResults || 10, 1), 50); // Clamp between 1 and 50
+
   try {
     const supabase = createAdminClient();
     let processed = 0;
@@ -29,8 +42,24 @@ async function runIngestion(request: NextRequest) {
     const errors: string[] = [];
     const apiLogs: YouTubeApiLogEntry[] = [];
 
-    // Fetch popular AI videos (with logging)
-    const videos = await fetchPopularAIVideos(10, apiLogs);
+    // Fetch AI videos based on source
+    let videos;
+    if (source === 'popular') {
+      console.log('[scheduler] Fetching', validMaxResults, 'popular videos');
+      videos = await fetchPopularAIVideos(validMaxResults, apiLogs);
+    } else if (source === 'channel' && channel) {
+      console.log('[scheduler] Searching channel:', channel);
+      // First search for the channel to get the channel ID
+      const channelInfo = await searchChannel(channel, apiLogs);
+      if (!channelInfo) {
+        return Response.json({ error: `Channel not found: ${channel}` }, { status: 404 });
+      }
+      console.log('[scheduler] Found channel:', channelInfo.title, 'ID:', channelInfo.id);
+      videos = await fetchVideosByChannel(channelInfo.id, validMaxResults, apiLogs);
+    } else {
+      console.log('[scheduler] Searching', validMaxResults, 'AI videos');
+      videos = await searchAIVideos(validMaxResults, 'viewCount', apiLogs);
+    }
 
     for (const video of videos) {
       try {
@@ -65,7 +94,9 @@ async function runIngestion(request: NextRequest) {
 
         // Check transcript (with logging)
         const videoApiLogs: YouTubeApiLogEntry[] = [];
+        console.log('[scheduler] Processing video:', video.id, 'title:', video.title);
         const transcript = await getYouTubeTranscript(video.id, videoApiLogs);
+        console.log('[scheduler] Transcript result for', video.id, ':', transcript ? `success (${transcript.segments.length} segments)` : 'null');
 
         if (!transcript) {
           // No captions available - mark as rejected with reason
@@ -81,18 +112,29 @@ async function runIngestion(request: NextRequest) {
           continue;
         }
 
-        // Translate (use fullText from transcript)
-        const translated = await translateTranscript(transcript.fullText);
+        // Always save the original transcript first
+        const updateData: Record<string, unknown> = {
+          original_text: transcript.fullText,
+          youtube_api_log: [...apiLogs, ...videoApiLogs],
+        };
 
-        // Update with transcript and translation
+        // Try to translate (don't block on translation failure)
+        let translationError: string | null = null;
+        try {
+          const translated = await translateTranscript(transcript.fullText);
+          updateData.translated_text = translated;
+          updateData.status = 'Pending Review' as VideoStatus;
+        } catch (translateError) {
+          // Translation failed, but transcript is saved
+          translationError = translateError instanceof Error ? translateError.message : String(translateError);
+          updateData.status = 'Pending Translation' as VideoStatus;
+          updateData.rejection_note = `翻译失败: ${translationError}`;
+        }
+
+        // Update with transcript (and translation if successful)
         await supabase
           .from('videos')
-          .update({
-            original_text: transcript.fullText,
-            translated_text: translated,
-            status: 'Pending Review' as VideoStatus,
-            youtube_api_log: [...apiLogs, ...videoApiLogs],
-          })
+          .update(updateData)
           .eq('id', newVideo.id);
 
         processed++;

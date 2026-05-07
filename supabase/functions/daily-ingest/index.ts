@@ -1,7 +1,6 @@
 // Daily video ingestion Edge Function
 // Runs on a schedule to fetch and translate YouTube AI videos
 
-//import { serve } from 'https://deno.land/x/supabase_functions@0.1.0/mod.ts';
 import { serve } from "https://deno.land/std@0.220.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -13,7 +12,12 @@ const supabase = createClient(
 serve(async (req) => {
   try {
     // Verify authorization
-  
+    const authHeader = req.headers.get('authorization');
+    const expectedAuth = `Bearer ${Deno.env.get('CRON_SECRET')}`;
+
+    if (!Deno.env.get('CRON_SECRET') || authHeader !== expectedAuth) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    }
 
     let processed = 0;
     let skipped = 0;
@@ -42,7 +46,7 @@ serve(async (req) => {
           .insert({
             youtube_id: video.id.videoId,
             title: video.snippet.title,
-            thumbnail_url: video.snippet.thumbnails?.high?.url,
+            thumbnail_url: video.snippet?.thumbnails?.high?.url,
             status: 'Pending Translation',
           })
           .select()
@@ -53,30 +57,14 @@ serve(async (req) => {
           continue;
         }
 
-        // Get transcript and translate
-        const transcript = await getYouTubeTranscript(video.id.videoId);
-
-        if (!transcript) {
-          // No transcript available - mark for manual review
-          await supabase
-            .from('videos')
-            .update({
-              status: 'Pending Review',
-              rejection_note: 'No captions available for this video.',
-            })
-            .eq('id', newVideo.id);
-          processed++;
-          continue;
-        }
-
-        const translated = await translateText(transcript);
-
+        // Skip transcript fetching in Deno environment
+        // The main Next.js app handles transcript fetching using yt-transcript-kit
+        // Mark as pending review for manual processing
         await supabase
           .from('videos')
           .update({
-            original_text: transcript,
-            translated_text: translated,
             status: 'Pending Review',
+            rejection_note: 'Transcript to be fetched by main app using yt-transcript-kit',
           })
           .eq('id', newVideo.id);
 
@@ -134,81 +122,4 @@ async function fetchPopularAIVideos(maxResults: number): Promise<YouTubeVideo[]>
   const response = await fetch(url.toString());
   const data = await response.json();
   return data.items || [];
-}
-
-async function getYouTubeTranscript(videoId: string): Promise<string | null> {
-  try {
-    const apiKey = Deno.env.get('YOUTUBE_API_KEY');
-    const captionsUrl = new URL('https://www.googleapis.com/youtube/v3/captions');
-    captionsUrl.searchParams.set('part', 'snippet');
-    captionsUrl.searchParams.set('videoId', videoId);
-    captionsUrl.searchParams.set('key', apiKey || '');
-
-    const response = await fetch(captionsUrl.toString());
-    const data = await response.json();
-
-    if (!data.items?.length) {
-      return null;
-    }
-
-    // Get first English caption
-    const caption = data.items.find((c: { snippet: { language: string } }) => c.snippet.language === 'en') || data.items[0];
-
-    // Download caption content
-    const captionUrl = new URL('https://www.googleapis.com/youtube/v3/captions');
-    captionUrl.searchParams.set('id', caption.id);
-    captionUrl.searchParams.set('tfmt', 'vtt');
-    captionUrl.searchParams.set('key', apiKey || '');
-
-    const captionResponse = await fetch(captionUrl.toString());
-    const captionContent = await captionResponse.text();
-
-    // Parse VTT to extract text
-    const lines = captionContent.split('\n');
-    const textLines: string[] = [];
-    let inTimestamp = false;
-
-    for (const line of lines) {
-      if (line.includes('-->') || /^\d+$/.test(line.trim())) {
-        inTimestamp = !inTimestamp;
-        continue;
-      }
-      if (!inTimestamp && line.trim() && !line.startsWith('<') && !line.startsWith('NOTE')) {
-        textLines.push(line.trim());
-      }
-    }
-
-    return textLines.join(' ');
-  } catch {
-    return null;
-  }
-}
-
-async function translateText(text: string): Promise<string> {
-  const openrouterKey = Deno.env.get('OPENROUTER_API_KEY');
-  const siteUrl = Deno.env.get('SITE_URL') || 'http://localhost:3000';
-
-  if (!openrouterKey) {
-    throw new Error('OPENROUTER_API_KEY not configured');
-  }
-
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openrouterKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': siteUrl,
-      'X-OpenRouter-Title': 'YouTube AI Translator',
-    },
-    body: JSON.stringify({
-      model: 'openai/gpt-4.1-mini',
-      messages: [{
-        role: 'user',
-        content: `Translate the following English text to Chinese (Simplified). Keep technical terms accurate and maintain a conversational tone.\n\n${text}`,
-      }],
-    }),
-  });
-
-  const data = await response.json();
-  return data.choices[0]?.message?.content || text;
 }

@@ -1,18 +1,43 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Video, VideoStatus } from '@/lib/db-types';
 
-// Fetch videos with optional status filter
-async function fetchVideos(status?: VideoStatus): Promise<Video[]> {
+interface VideosResponse {
+  data: Video[];
+  pagination: {
+    currentPage: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+  };
+}
+
+// Fetch videos with optional status filter and pagination
+async function fetchVideos(
+  status?: VideoStatus,
+  page: number = 1,
+  pageSize: number = 10
+): Promise<VideosResponse> {
   const params = new URLSearchParams();
   if (status) {
     params.set('status', status);
   }
+  params.set('page', page.toString());
+  params.set('pageSize', pageSize.toString());
 
   const response = await fetch(`/api/videos?${params.toString()}`);
   if (!response.ok) {
     throw new Error('Failed to fetch videos');
   }
-  return response.json();
+  const result = await response.json();
+  return {
+    data: result.data || result, // Fallback for non-paginated response
+    pagination: result.pagination || {
+      currentPage: page,
+      pageSize: pageSize,
+      totalCount: (result.data || result).length,
+      totalPages: 1,
+    },
+  };
 }
 
 // Fetch single video
@@ -62,10 +87,14 @@ async function rejectVideo(id: number, rejection_note?: string): Promise<Video> 
 }
 
 // React Query hooks
-export function useVideos(status?: VideoStatus) {
+export function useVideos(
+  status?: VideoStatus,
+  page: number = 1,
+  pageSize: number = 10
+) {
   return useQuery({
-    queryKey: ['videos', status],
-    queryFn: () => fetchVideos(status),
+    queryKey: ['videos', status, page, pageSize],
+    queryFn: () => fetchVideos(status, page, pageSize),
   });
 }
 
