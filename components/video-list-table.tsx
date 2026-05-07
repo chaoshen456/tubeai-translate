@@ -17,6 +17,8 @@ import { Skeleton } from './ui/skeleton';
 import { ExternalLink, Play } from 'lucide-react';
 import { VideoDetailDrawer } from './video-detail-drawer';
 import { Pagination, PaginationInfo } from './ui/pagination';
+import { Button } from './ui/button';
+import { Search } from 'lucide-react';
 
 const VIDEO_STATUSES_ZH: Record<VideoStatus, string> = {
   'Pending Translation': '待翻译',
@@ -34,7 +36,7 @@ export function VideoListTable() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const { data, isLoading, error } = useVideos(
+  const { data, isLoading, error, refetch } = useVideos(
     statusFilter === 'all' ? undefined : statusFilter,
     page,
     pageSize
@@ -115,6 +117,14 @@ export function VideoListTable() {
             ))}
           </SelectContent>
         </Select>
+
+        <Button
+          onClick={() => refetch()}
+          className="h-10 rounded-xl px-4 text-[13px] bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-0"
+        >
+          <Search className="w-4 h-4 mr-2" />
+          查询
+        </Button>
       </div>
 
       {/* Table */}

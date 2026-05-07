@@ -92,10 +92,15 @@ export function useVideos(
   page: number = 1,
   pageSize: number = 10
 ) {
-  return useQuery({
+  const queryResult = useQuery({
     queryKey: ['videos', status, page, pageSize],
     queryFn: () => fetchVideos(status, page, pageSize),
   });
+
+  return {
+    ...queryResult,
+    refetch: queryResult.refetch,
+  };
 }
 
 export function useVideo(id: number) {
